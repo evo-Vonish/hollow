@@ -1,0 +1,377 @@
+# hollow · 搜索源注册表 v1
+# 数据源: vendor/searxng/searx/settings.yml @ a643858 (343 个引擎)
+# tier = 运营方知名度/可靠性分级; type = 内容域类型(10 类)
+# upstream_default = SearXNG 上游默认是否启用; inactive = 上游标记彻底停用
+meta:
+  source: vendor/searxng/searx/settings.yml@a643858
+  updated: '2026-07-05'
+  tiers:
+    T0: 全球巨头/顶级机构官方服务,家喻户晓(Google/Microsoft/Apple/Baidu/Yandex/Wikimedia/Reuters 等)
+    T1: 老牌知名服务或主流生态官方入口(DuckDuckGo/Brave/StackOverflow/arXiv/npm/MDN 等)
+    T2: 垂直领域知名站/国家级门户/社区大站
+    T3: 小众站/自建实例/元搜索代理/暗网/长尾
+  types:
+    web: 通用网页
+    knowledge: 知识百科
+    academic: 学术科研
+    dev: 开发技术
+    news: 新闻资讯
+    images: 图片设计
+    av: 视频音频
+    social: 社交论坛
+    files: 文件资源
+    life: 生活工具
+engines:
+  # ================ 通用网页 (web) × 61 ================
+  - {name: "baidu", module: baidu, tier: T0, type: web, cats: [general], default: false}
+  - {name: "bing", module: bing, tier: T0, type: web, cats: [general], default: false}
+  - {name: "google", module: google, tier: T0, type: web, cats: [general], default: false, inactive: true}
+  - {name: "google cse", module: google_cse, tier: T0, type: web, cats: [general]}
+  - {name: "yahoo", module: yahoo, tier: T0, type: web, cats: [general], default: false}
+  - {name: "yandex", module: yandex, tier: T0, type: web, cats: [general], default: false}
+  - {name: "360search", module: 360search, tier: T1, type: web, cats: [general], default: false}
+  - {name: "brave", module: brave, tier: T1, type: web, cats: [general, web]}
+  - {name: "braveapi", module: braveapi, tier: T1, type: web, cats: [general], default: false, inactive: true}
+  - {name: "duckduckgo", module: duckduckgo, tier: T1, type: web, cats: [general]}
+  - {name: "duckduckgo web", module: duckduckgo_web, tier: T1, type: web, cats: [general], default: false}
+  - {name: "naver", module: naver, tier: T1, type: web, cats: [general, web], default: false}
+  - {name: "quark", module: quark, tier: T1, type: web, cats: [general], default: false}
+  - {name: "qwant", module: qwant, tier: T1, type: web, cats: [general, web], default: false}
+  - {name: "seznam", module: seznam, tier: T1, type: web, cats: [general], default: false}
+  - {name: "sogou", module: sogou, tier: T1, type: web, cats: [general], default: false}
+  - {name: "startpage", module: startpage, tier: T1, type: web, cats: [general, web]}
+  - {name: "dogpile", module: dogpile, tier: T2, type: web, cats: [general], default: false}
+  - {name: "gmx", module: gmx, tier: T2, type: web, cats: [general], default: false}
+  - {name: "marginalia", module: marginalia, tier: T2, type: web, cats: [general], default: false, inactive: true}
+  - {name: "mojeek", module: mojeek, tier: T2, type: web, cats: [general, web], default: false}
+  - {name: "presearch", module: presearch, tier: T2, type: web, cats: [general, web], default: false}
+  - {name: "searchch", module: xpath, tier: T2, type: web, cats: [general], default: false}
+  - {name: "startpagina", module: startpagina, tier: T2, type: web, cats: [general], default: false, inactive: true}
+  - {name: "swisscows", module: swisscows, tier: T2, type: web, cats: [general], default: false, inactive: true}
+  - {name: "tonline", module: tonline, tier: T2, type: web, cats: [general], default: false, inactive: true}
+  - {name: "yep", module: yep, tier: T2, type: web, cats: [general], default: false}
+  - {name: "ahmia", module: ahmia, tier: T3, type: web, cats: [onions]}
+  - {name: "ayo", module: xpath, tier: T3, type: web, cats: [general], default: false}
+  - {name: "cl0q", module: json_engine, tier: T3, type: web, cats: [general], default: false, inactive: true}
+  - {name: "crowdview", module: json_engine, tier: T3, type: web, cats: [general], default: false}
+  - {name: "fastbot", module: xpath, tier: T3, type: web, cats: [general], default: false}
+  - {name: "fireball", module: fireball, tier: T3, type: web, cats: [general], default: false}
+  - {name: "fynd", module: xpath, tier: T3, type: web, cats: [general], default: false}
+  - {name: "gabanza", module: xpath, tier: T3, type: web, cats: [general], default: false}
+  - {name: "heexy", module: heexy, tier: T3, type: web, cats: [general], default: false, inactive: true}
+  - {name: "infospace", module: s1search, tier: T3, type: web, cats: [general], default: false}
+  - {name: "iseek", module: iseek, tier: T3, type: web, cats: [general], default: false, inactive: true}
+  - {name: "kozmonavt", module: xpath, tier: T3, type: web, cats: [general], default: false, inactive: true}
+  - {name: "kukei", module: xpath, tier: T3, type: web, cats: [general, blogs], default: false, inactive: true}
+  - {name: "luxxle", module: luxxle, tier: T3, type: web, cats: [general], default: false, inactive: true}
+  - {name: "mwmbl", module: mwmbl, tier: T3, type: web, cats: [general], default: false}
+  - {name: "neocities", module: neocities, tier: T3, type: web, cats: [general], default: false, inactive: true}
+  - {name: "neosearch", module: neosearch, tier: T3, type: web, cats: [general], default: false, inactive: true}
+  - {name: "privacywall", module: privacywall, tier: T3, type: web, cats: [general], default: false}
+  - {name: "rawweb", module: json_engine, tier: T3, type: web, cats: [general, blogs], default: false, inactive: true}
+  - {name: "reloado", module: xpath, tier: T3, type: web, cats: [general], default: false}
+  - {name: "resulthunter", module: resulthunter, tier: T3, type: web, cats: [general], default: false}
+  - {name: "searchmysite", module: xpath, tier: T3, type: web, cats: [general, blogs], default: false}
+  - {name: "searchtoday", module: s1search, tier: T3, type: web, cats: [general], default: false}
+  - {name: "searchzee", module: searchzee, tier: T3, type: web, cats: [general], default: false, inactive: true}
+  - {name: "seekninja", module: seekninja, tier: T3, type: web, cats: [general], default: false, inactive: true}
+  - {name: "tiger", module: tiger, tier: T3, type: web, cats: [general], default: false, inactive: true}
+  - {name: "torch", module: xpath, tier: T3, type: web, cats: [onions]}
+  - {name: "tusksearch", module: tusksearch, tier: T3, type: web, cats: [general], default: false}
+  - {name: "unobtanium", module: xpath, tier: T3, type: web, cats: [general, blogs], default: false, inactive: true}
+  - {name: "vuhuv", module: vuhuv, tier: T3, type: web, cats: [general], default: false}
+  - {name: "wiby", module: json_engine, tier: T3, type: web, cats: [general, blogs], default: false}
+  - {name: "xonaly", module: xpath, tier: T3, type: web, cats: [general], default: false, inactive: true}
+  - {name: "yacy", module: yacy, tier: T3, type: web, cats: [general], default: false}
+  - {name: "zapmeta", module: xpath, tier: T3, type: web, cats: [general], default: false}
+  # ================ 知识百科 (knowledge) × 33 ================
+  - {name: "wikibooks", module: mediawiki, tier: T0, type: knowledge, cats: [general, wikimedia], default: false}
+  - {name: "wikidata", module: wikidata, tier: T0, type: knowledge, cats: [general]}
+  - {name: "wikipedia", module: wikipedia, tier: T0, type: knowledge, cats: [general]}
+  - {name: "wikiquote", module: mediawiki, tier: T0, type: knowledge, cats: [general, wikimedia], default: false}
+  - {name: "wikisource", module: mediawiki, tier: T0, type: knowledge, cats: [general, wikimedia], default: false}
+  - {name: "wikispecies", module: mediawiki, tier: T0, type: knowledge, cats: [general, science, wikimedia], default: false}
+  - {name: "wikiversity", module: mediawiki, tier: T0, type: knowledge, cats: [general, wikimedia], default: false}
+  - {name: "wikivoyage", module: mediawiki, tier: T0, type: knowledge, cats: [general, wikimedia], default: false}
+  - {name: "wiktionary", module: mediawiki, tier: T0, type: knowledge, cats: [dictionaries, wikimedia]}
+  - {name: "ddg definitions", module: duckduckgo_definitions, tier: T1, type: knowledge, cats: [general], default: false}
+  - {name: "duden", module: duden, tier: T1, type: knowledge, cats: [general], default: false}
+  - {name: "goodreads", module: goodreads, tier: T1, type: knowledge, cats: [general], default: false}
+  - {name: "imdb", module: imdb, tier: T1, type: knowledge, cats: [general], default: false}
+  - {name: "openlibrary", module: openlibrary, tier: T1, type: knowledge, cats: [general], default: false}
+  - {name: "rottentomatoes", module: rottentomatoes, tier: T1, type: knowledge, cats: [general], default: false}
+  - {name: "wolframalpha", module: wolframalpha_noapi, tier: T1, type: knowledge, cats: [general], default: false}
+  - {name: "wolframalpha_api", module: wolframalpha_api, tier: T1, type: knowledge, cats: [general], default: false, inactive: true}
+  - {name: "bpb", module: bpb, tier: T2, type: knowledge, cats: [general], default: false}
+  - {name: "destatis", module: destatis, tier: T2, type: knowledge, cats: [general], default: false}
+  - {name: "emojipedia", module: emojipedia, tier: T2, type: knowledge, cats: [general], default: false}
+  - {name: "etymonline", module: xpath, tier: T2, type: knowledge, cats: [dictionaries]}
+  - {name: "grokipedia", module: grokipedia, tier: T2, type: knowledge, cats: [general], default: false, inactive: true}
+  - {name: "jisho", module: jisho, tier: T2, type: knowledge, cats: [general], default: false}
+  - {name: "minecraft wiki", module: mediawiki, tier: T2, type: knowledge, cats: [software wikis], default: false}
+  - {name: "senscritique", module: senscritique, tier: T2, type: knowledge, cats: [general], default: false}
+  - {name: "tmdb", module: xpath, tier: T2, type: knowledge, cats: [movies], default: false}
+  - {name: "wordnik", module: wordnik, tier: T2, type: knowledge, cats: [general]}
+  - {name: "dictzone", module: dictzone, tier: T3, type: knowledge, cats: [general]}
+  - {name: "encyclosearch", module: json_engine, tier: T3, type: knowledge, cats: [general], default: false}
+  - {name: "erowid", module: xpath, tier: T3, type: knowledge, cats: [], default: false}
+  - {name: "moviepilot", module: moviepilot, tier: T3, type: knowledge, cats: [general], default: false}
+  - {name: "wikimini", module: xpath, tier: T3, type: knowledge, cats: [general], default: false}
+  - {name: "woxikon.de synonyme", module: xpath, tier: T3, type: knowledge, cats: [dictionaries], default: false}
+  # ================ 学术科研 (academic) × 12 ================
+  - {name: "google scholar", module: google_scholar, tier: T0, type: academic, cats: [general]}
+  - {name: "pubmed", module: pubmed, tier: T0, type: academic, cats: [general]}
+  - {name: "arxiv", module: arxiv, tier: T1, type: academic, cats: [general]}
+  - {name: "astrophysics data system", module: astrophysics_data_system, tier: T1, type: academic, cats: [general], default: false, inactive: true}
+  - {name: "crossref", module: crossref, tier: T1, type: academic, cats: [general], default: false}
+  - {name: "semantic scholar", module: semantic_scholar, tier: T1, type: academic, cats: [general]}
+  - {name: "springer nature", module: springer, tier: T1, type: academic, cats: [general], default: false, inactive: true}
+  - {name: "core.ac.uk", module: core, tier: T2, type: academic, cats: [general], default: false, inactive: true}
+  - {name: "openairedatasets", module: json_engine, tier: T2, type: academic, cats: [science]}
+  - {name: "openairepublications", module: json_engine, tier: T2, type: academic, cats: [science]}
+  - {name: "openalex", module: openalex, tier: T2, type: academic, cats: [general], default: false}
+  - {name: "pdbe", module: pdbe, tier: T2, type: academic, cats: [general]}
+  # ================ 开发技术 (dev) × 49 ================
+  - {name: "azure", module: azure, tier: T0, type: dev, cats: [it, cloud], default: false, inactive: true}
+  - {name: "baidu kaifa", module: baidu, tier: T0, type: dev, cats: [it], default: false}
+  - {name: "github", module: github, tier: T0, type: dev, cats: [general]}
+  - {name: "github code", module: github_code, tier: T0, type: dev, cats: [general], default: false, inactive: true}
+  - {name: "microsoft learn", module: microsoft_learn, tier: T0, type: dev, cats: [general], default: false}
+  - {name: "arch linux wiki", module: archlinux, tier: T1, type: dev, cats: [general]}
+  - {name: "askubuntu", module: stackexchange, tier: T1, type: dev, cats: [it, q&a]}
+  - {name: "bitbucket", module: xpath, tier: T1, type: dev, cats: [it, repos], default: false}
+  - {name: "cloudflareai", module: cloudflareai, tier: T1, type: dev, cats: [general], default: false, inactive: true}
+  - {name: "crates.io", module: crates, tier: T1, type: dev, cats: [general], default: false}
+  - {name: "docker hub", module: docker_hub, tier: T1, type: dev, cats: [it, packages]}
+  - {name: "gitlab", module: gitlab, tier: T1, type: dev, cats: [general], default: false}
+  - {name: "hackernews", module: hackernews, tier: T1, type: dev, cats: [general], default: false}
+  - {name: "huggingface", module: huggingface, tier: T1, type: dev, cats: [general], default: false}
+  - {name: "huggingface datasets", module: huggingface, tier: T1, type: dev, cats: [general], default: false}
+  - {name: "huggingface spaces", module: huggingface, tier: T1, type: dev, cats: [general], default: false}
+  - {name: "mdn", module: json_engine, tier: T1, type: dev, cats: [it]}
+  - {name: "national vulnerability database", module: nvd, tier: T1, type: dev, cats: [general], default: false}
+  - {name: "npm", module: npm, tier: T1, type: dev, cats: [general], default: false}
+  - {name: "pypi", module: pypi, tier: T1, type: dev, cats: [general]}
+  - {name: "stackoverflow", module: stackexchange, tier: T1, type: dev, cats: [it, q&a]}
+  - {name: "superuser", module: stackexchange, tier: T1, type: dev, cats: [it, q&a]}
+  - {name: "alpine linux packages", module: alpinelinux, tier: T2, type: dev, cats: [general], default: false}
+  - {name: "anaconda", module: xpath, tier: T2, type: dev, cats: [it], default: false}
+  - {name: "codeberg", module: gitea, tier: T2, type: dev, cats: [general], default: false}
+  - {name: "discuss.python", module: discourse, tier: T2, type: dev, cats: [it, q&a], default: false}
+  - {name: "gentoo", module: mediawiki, tier: T2, type: dev, cats: [it, software wikis]}
+  - {name: "gitea.com", module: gitea, tier: T2, type: dev, cats: [general], default: false}
+  - {name: "habrahabr", module: xpath, tier: T2, type: dev, cats: [it], default: false}
+  - {name: "hex", module: hex, tier: T2, type: dev, cats: [general], default: false}
+  - {name: "hoogle", module: xpath, tier: T2, type: dev, cats: [it, packages]}
+  - {name: "lib.rs", module: lib_rs, tier: T2, type: dev, cats: [general], default: false}
+  - {name: "lobste.rs", module: xpath, tier: T2, type: dev, cats: [it], default: false}
+  - {name: "metacpan", module: metacpan, tier: T2, type: dev, cats: [general], default: false}
+  - {name: "nixos wiki", module: mediawiki, tier: T2, type: dev, cats: [it, software wikis], default: false}
+  - {name: "ollama", module: ollama, tier: T2, type: dev, cats: [general], default: false}
+  - {name: "packagist", module: json_engine, tier: T2, type: dev, cats: [it, packages], default: false}
+  - {name: "pkg.go.dev", module: pkg_go_dev, tier: T2, type: dev, cats: [general], default: false}
+  - {name: "pub.dev", module: xpath, tier: T2, type: dev, cats: [packages, it], default: false}
+  - {name: "repology", module: repology, tier: T2, type: dev, cats: [general], default: false, inactive: true}
+  - {name: "rubygems", module: xpath, tier: T2, type: dev, cats: [it, packages], default: false}
+  - {name: "sourcehut", module: sourcehut, tier: T2, type: dev, cats: [general], default: false}
+  - {name: "cachy os packages", module: cachy_os, tier: T3, type: dev, cats: [general], default: false}
+  - {name: "caddy.community", module: discourse, tier: T3, type: dev, cats: [it, q&a], default: false}
+  - {name: "elasticsearch", module: elasticsearch, tier: T3, type: dev, cats: [general], default: false, inactive: true}
+  - {name: "free software directory", module: mediawiki, tier: T3, type: dev, cats: [it, software wikis], default: false}
+  - {name: "mankier", module: json_engine, tier: T3, type: dev, cats: [it]}
+  - {name: "pi-hole.community", module: discourse, tier: T3, type: dev, cats: [it, q&a], default: false}
+  - {name: "voidlinux", module: voidlinux, tier: T3, type: dev, cats: [general], default: false}
+  # ================ 新闻资讯 (news) × 27 ================
+  - {name: "bing news", module: bing_news, tier: T0, type: news, cats: [general]}
+  - {name: "google news", module: google_news, tier: T0, type: news, cats: [general]}
+  - {name: "reuters", module: reuters, tier: T0, type: news, cats: [general]}
+  - {name: "yahoo news", module: yahoo_news, tier: T0, type: news, cats: [general], default: false, inactive: true}
+  - {name: "ansa", module: ansa, tier: T1, type: news, cats: [general], default: false}
+  - {name: "brave.news", module: brave, tier: T1, type: news, cats: [news]}
+  - {name: "duckduckgo news", module: duckduckgo_extra, tier: T1, type: news, cats: [news]}
+  - {name: "naver news", module: naver, tier: T1, type: news, cats: [news], default: false}
+  - {name: "qwant news", module: qwant, tier: T1, type: news, cats: [news], default: false}
+  - {name: "sina", module: json_engine, tier: T1, type: news, cats: [news], default: false, inactive: true}
+  - {name: "startpage news", module: startpage, tier: T1, type: news, cats: [news, web]}
+  - {name: "tagesschau", module: tagesschau, tier: T1, type: news, cats: [general], default: false}
+  - {name: "wikinews", module: mediawiki, tier: T1, type: news, cats: [news, wikimedia]}
+  - {name: "chinaso news", module: chinaso, tier: T2, type: news, cats: [news], default: false, inactive: true}
+  - {name: "dogpile news", module: dogpile, tier: T2, type: news, cats: [news], default: false}
+  - {name: "il post", module: il_post, tier: T2, type: news, cats: [general], default: false}
+  - {name: "mojeek news", module: mojeek, tier: T2, type: news, cats: [news, web], default: false}
+  - {name: "presearch news", module: presearch, tier: T2, type: news, cats: [news, web], default: false}
+  - {name: "startpagina news", module: startpagina, tier: T2, type: news, cats: [news], default: false, inactive: true}
+  - {name: "swisscows news", module: swisscows_news, tier: T2, type: news, cats: [general], default: false, inactive: true}
+  - {name: "tonline news", module: tonline, tier: T2, type: news, cats: [news], default: false, inactive: true}
+  - {name: "abcnyheter", module: xpath, tier: T3, type: news, cats: [general], default: false}
+  - {name: "fireball news", module: fireball, tier: T3, type: news, cats: [news], default: false}
+  - {name: "luxxle news", module: luxxle, tier: T3, type: news, cats: [news], default: false, inactive: true}
+  - {name: "searchzee news", module: searchzee, tier: T3, type: news, cats: [news], default: false, inactive: true}
+  - {name: "tiger news", module: tiger, tier: T3, type: news, cats: [news], default: false, inactive: true}
+  - {name: "tusksearch news", module: tusksearch, tier: T3, type: news, cats: [news], default: false}
+  # ================ 图片设计 (images) × 60 ================
+  - {name: "adobe stock", module: adobe_stock, tier: T0, type: images, cats: [images], default: false}
+  - {name: "baidu images", module: baidu, tier: T0, type: images, cats: [images], default: false}
+  - {name: "bing images", module: bing_images, tier: T0, type: images, cats: [general]}
+  - {name: "google images", module: google_images, tier: T0, type: images, cats: [general]}
+  - {name: "wikicommons.images", module: wikicommons, tier: T0, type: images, cats: [images]}
+  - {name: "yandex images", module: yandex, tier: T0, type: images, cats: [images], default: false}
+  - {name: "artstation", module: artstation, tier: T1, type: images, cats: [images], default: false}
+  - {name: "brave.images", module: brave, tier: T1, type: images, cats: [images, web]}
+  - {name: "deviantart", module: deviantart, tier: T1, type: images, cats: [general]}
+  - {name: "duckduckgo images", module: duckduckgo_extra, tier: T1, type: images, cats: [images]}
+  - {name: "flickr", module: flickr_noapi, tier: T1, type: images, cats: [images]}
+  - {name: "flickr_api", module: flickr, tier: T1, type: images, cats: [images], default: false, inactive: true}
+  - {name: "giphy", module: giphy, tier: T1, type: images, cats: [general], default: false}
+  - {name: "imgur", module: imgur, tier: T1, type: images, cats: [general], default: false}
+  - {name: "library of congress", module: loc, tier: T1, type: images, cats: [images], default: false}
+  - {name: "material icons", module: material_icons, tier: T1, type: images, cats: [general], default: false}
+  - {name: "naver images", module: naver, tier: T1, type: images, cats: [images], default: false}
+  - {name: "pinterest", module: pinterest, tier: T1, type: images, cats: [general]}
+  - {name: "pixiv", module: pixiv, tier: T1, type: images, cats: [general], default: false, inactive: true}
+  - {name: "quark images", module: quark, tier: T1, type: images, cats: [images], default: false}
+  - {name: "qwant images", module: qwant, tier: T1, type: images, cats: [images, web], default: false}
+  - {name: "sogou images", module: sogou_images, tier: T1, type: images, cats: [general], default: false}
+  - {name: "startpage images", module: startpage, tier: T1, type: images, cats: [images, web]}
+  - {name: "unsplash", module: unsplash, tier: T1, type: images, cats: [general]}
+  - {name: "500px", module: 500px, tier: T2, type: images, cats: [general], default: false}
+  - {name: "artic", module: artic, tier: T2, type: images, cats: [general]}
+  - {name: "dogpile images", module: dogpile, tier: T2, type: images, cats: [images], default: false}
+  - {name: "flaticon", module: flaticon, tier: T2, type: images, cats: [general], default: false}
+  - {name: "lucide", module: lucide, tier: T2, type: images, cats: [general]}
+  - {name: "mojeek images", module: mojeek, tier: T2, type: images, cats: [images, web], default: false}
+  - {name: "openverse", module: openverse, tier: T2, type: images, cats: [images]}
+  - {name: "pexels", module: pexels, tier: T2, type: images, cats: [general]}
+  - {name: "pixabay images", module: pixabay, tier: T2, type: images, cats: [images], default: false}
+  - {name: "presearch images", module: presearch, tier: T2, type: images, cats: [images, web], default: false}
+  - {name: "startpagina images", module: startpagina, tier: T2, type: images, cats: [images], default: false, inactive: true}
+  - {name: "swisscows images", module: swisscows, tier: T2, type: images, cats: [images], default: false, inactive: true}
+  - {name: "tineye", module: tineye, tier: T2, type: images, cats: [general], default: false}
+  - {name: "tonline images", module: tonline, tier: T2, type: images, cats: [images], default: false, inactive: true}
+  - {name: "wallhaven", module: wallhaven, tier: T2, type: images, cats: [general], default: false, inactive: true}
+  - {name: "1x", module: www1x, tier: T3, type: images, cats: [general], default: false}
+  - {name: "cara", module: cara, tier: T3, type: images, cats: [general], default: false}
+  - {name: "devicons", module: devicons, tier: T3, type: images, cats: [general]}
+  - {name: "findfiles images", module: findfiles, tier: T3, type: images, cats: [images], default: false}
+  - {name: "findthatmeme", module: findthatmeme, tier: T3, type: images, cats: [general], default: false}
+  - {name: "frinkiac", module: frinkiac, tier: T3, type: images, cats: [general], default: false}
+  - {name: "heexy images", module: heexy, tier: T3, type: images, cats: [images], default: false, inactive: true}
+  - {name: "ipernity", module: ipernity, tier: T3, type: images, cats: [general], default: false}
+  - {name: "luxxle images", module: luxxle, tier: T3, type: images, cats: [images], default: false, inactive: true}
+  - {name: "magnific", module: magnific, tier: T3, type: images, cats: [general], default: false}
+  - {name: "openclipart", module: openclipart, tier: T3, type: images, cats: [general], default: false, inactive: true}
+  - {name: "picjumbo", module: picjumbo, tier: T3, type: images, cats: [general], default: false}
+  - {name: "privacywall images", module: privacywall, tier: T3, type: images, cats: [images], default: false}
+  - {name: "public domain image archive", module: public_domain_image_archive, tier: T3, type: images, cats: [general], default: false}
+  - {name: "resulthunter images", module: resulthunter, tier: T3, type: images, cats: [images], default: false}
+  - {name: "selfhst icons", module: selfhst, tier: T3, type: images, cats: [general], default: false}
+  - {name: "stocksnap", module: stocksnap, tier: T3, type: images, cats: [general], default: false}
+  - {name: "tusksearch images", module: tusksearch, tier: T3, type: images, cats: [images], default: false}
+  - {name: "uxwing", module: uxwing, tier: T3, type: images, cats: [general], default: false}
+  - {name: "vuhuv images", module: vuhuv, tier: T3, type: images, cats: [images], default: false}
+  - {name: "yacy images", module: yacy, tier: T3, type: images, cats: [images], default: false}
+  # ================ 视频音频 (av) × 54 ================
+  - {name: "adobe stock audio", module: adobe_stock, tier: T0, type: av, cats: [music], default: false}
+  - {name: "adobe stock video", module: adobe_stock, tier: T0, type: av, cats: [videos], default: false}
+  - {name: "bing videos", module: bing_videos, tier: T0, type: av, cats: [general]}
+  - {name: "google play movies", module: google_play, tier: T0, type: av, cats: [videos], default: false}
+  - {name: "google videos", module: google_videos, tier: T0, type: av, cats: [general], default: false, inactive: true}
+  - {name: "wikicommons.audio", module: wikicommons, tier: T0, type: av, cats: [music]}
+  - {name: "wikicommons.videos", module: wikicommons, tier: T0, type: av, cats: [videos]}
+  - {name: "yandex music", module: yandex_music, tier: T0, type: av, cats: [general], default: false}
+  - {name: "youtube", module: youtube_noapi, tier: T0, type: av, cats: [general]}
+  - {name: "youtube_api", module: youtube_api, tier: T0, type: av, cats: [general], default: false, inactive: true}
+  - {name: "360search videos", module: 360search_videos, tier: T1, type: av, cats: [general], default: false}
+  - {name: "bandcamp", module: bandcamp, tier: T1, type: av, cats: [music]}
+  - {name: "bilibili", module: bilibili, tier: T1, type: av, cats: [general], default: false}
+  - {name: "brave.videos", module: brave, tier: T1, type: av, cats: [videos, web]}
+  - {name: "dailymotion", module: dailymotion, tier: T1, type: av, cats: [general]}
+  - {name: "deezer", module: deezer, tier: T1, type: av, cats: [general], default: false}
+  - {name: "duckduckgo videos", module: duckduckgo_extra, tier: T1, type: av, cats: [videos]}
+  - {name: "genius", module: genius, tier: T1, type: av, cats: [general]}
+  - {name: "iqiyi", module: iqiyi, tier: T1, type: av, cats: [general], default: false}
+  - {name: "naver videos", module: naver, tier: T1, type: av, cats: [videos], default: false}
+  - {name: "niconico", module: niconico, tier: T1, type: av, cats: [general], default: false}
+  - {name: "qwant videos", module: qwant, tier: T1, type: av, cats: [videos, web], default: false}
+  - {name: "sogou videos", module: sogou_videos, tier: T1, type: av, cats: [general], default: false}
+  - {name: "soundcloud", module: soundcloud, tier: T1, type: av, cats: [general]}
+  - {name: "vimeo", module: vimeo, tier: T1, type: av, cats: [general]}
+  - {name: "acfun", module: acfun, tier: T2, type: av, cats: [general], default: false}
+  - {name: "dogpile videos", module: dogpile, tier: T2, type: av, cats: [videos], default: false}
+  - {name: "freesound", module: freesound, tier: T2, type: av, cats: [general], default: false, inactive: true}
+  - {name: "ina", module: ina, tier: T2, type: av, cats: [general], default: false}
+  - {name: "media.ccc.de", module: ccc_media, tier: T2, type: av, cats: [general], default: false}
+  - {name: "mediathekviewweb", module: mediathekviewweb, tier: T2, type: av, cats: [general], default: false}
+  - {name: "mixcloud", module: mixcloud, tier: T2, type: av, cats: [general]}
+  - {name: "odysee", module: odysee, tier: T2, type: av, cats: [general], default: false}
+  - {name: "pixabay videos", module: pixabay, tier: T2, type: av, cats: [videos], default: false}
+  - {name: "podchaser", module: podchaser, tier: T2, type: av, cats: [general], default: false}
+  - {name: "presearch videos", module: presearch, tier: T2, type: av, cats: [general, web], default: false}
+  - {name: "radio browser", module: radio_browser, tier: T2, type: av, cats: [general]}
+  - {name: "rumble", module: rumble, tier: T2, type: av, cats: [videos], default: false}
+  - {name: "startpagina videos", module: startpagina, tier: T2, type: av, cats: [videos], default: false, inactive: true}
+  - {name: "swisscows videos", module: swisscows, tier: T2, type: av, cats: [videos], default: false, inactive: true}
+  - {name: "tonline videos", module: tonline, tier: T2, type: av, cats: [videos], default: false, inactive: true}
+  - {name: "bitchute", module: bitchute, tier: T3, type: av, cats: [general], default: false}
+  - {name: "findfiles music", module: findfiles, tier: T3, type: av, cats: [music], default: false}
+  - {name: "findfiles videos", module: findfiles, tier: T3, type: av, cats: [videos], default: false}
+  - {name: "fireball videos", module: fireball, tier: T3, type: av, cats: [videos], default: false}
+  - {name: "fyyd", module: fyyd, tier: T3, type: av, cats: [general], default: false}
+  - {name: "luxxle videos", module: luxxle, tier: T3, type: av, cats: [videos], default: false, inactive: true}
+  - {name: "peertube", module: peertube, tier: T3, type: av, cats: [videos], default: false}
+  - {name: "piped", module: piped, tier: T3, type: av, cats: [videos], default: false, inactive: true}
+  - {name: "piped.music", module: piped, tier: T3, type: av, cats: [music], default: false, inactive: true}
+  - {name: "privacywall videos", module: privacywall, tier: T3, type: av, cats: [videos], default: false}
+  - {name: "sepiasearch", module: sepiasearch, tier: T3, type: av, cats: [general]}
+  - {name: "tusksearch videos", module: tusksearch, tier: T3, type: av, cats: [videos], default: false}
+  - {name: "vuhuv videos", module: vuhuv, tier: T3, type: av, cats: [videos], default: false}
+  # ================ 社交论坛 (social) × 11 ================
+  - {name: "reddit", module: reddit, tier: T0, type: social, cats: [general], default: false}
+  - {name: "sogou wechat", module: sogou_wechat, tier: T1, type: social, cats: [general], default: false}
+  - {name: "9gag", module: 9gag, tier: T2, type: social, cats: [general], default: false}
+  - {name: "lemmy comments", module: lemmy, tier: T2, type: social, cats: [general]}
+  - {name: "lemmy communities", module: lemmy, tier: T2, type: social, cats: [general]}
+  - {name: "lemmy posts", module: lemmy, tier: T2, type: social, cats: [general]}
+  - {name: "lemmy users", module: lemmy, tier: T2, type: social, cats: [general]}
+  - {name: "mastodon hashtags", module: mastodon, tier: T2, type: social, cats: [general]}
+  - {name: "mastodon users", module: mastodon, tier: T2, type: social, cats: [general]}
+  - {name: "boardreader", module: boardreader, tier: T3, type: social, cats: [general], default: false}
+  - {name: "tootfinder", module: tootfinder, tier: T3, type: social, cats: [general]}
+  # ================ 文件资源 (files) × 20 ================
+  - {name: "apple app store", module: apple_app_store, tier: T0, type: files, cats: [general], default: false}
+  - {name: "google play apps", module: google_play, tier: T0, type: files, cats: [files, apps], default: false}
+  - {name: "wikicommons.files", module: wikicommons, tier: T0, type: files, cats: [files]}
+  - {name: "steam", module: steam, tier: T1, type: files, cats: [general], default: false}
+  - {name: "1337x", module: 1337x, tier: T2, type: files, cats: [general], default: false}
+  - {name: "annas archive", module: annas_archive, tier: T2, type: files, cats: [general], default: false}
+  - {name: "apk mirror", module: apkmirror, tier: T2, type: files, cats: [general], default: false}
+  - {name: "fdroid", module: fdroid, tier: T2, type: files, cats: [general], default: false}
+  - {name: "kickass", module: kickass, tier: T2, type: files, cats: [general]}
+  - {name: "library genesis", module: xpath, tier: T2, type: files, cats: [files], default: false}
+  - {name: "nyaa", module: nyaa, tier: T2, type: files, cats: [general], default: false}
+  - {name: "piratebay", module: piratebay, tier: T2, type: files, cats: [general]}
+  - {name: "z-library", module: zlibrary, tier: T2, type: files, cats: [general], default: false, inactive: true}
+  - {name: "Torznab EZTV", module: torznab, tier: T3, type: files, cats: [general], default: false, inactive: true}
+  - {name: "bt4g", module: bt4g, tier: T3, type: files, cats: [general]}
+  - {name: "btdigg", module: btdigg, tier: T3, type: files, cats: [general], default: false}
+  - {name: "findfiles", module: findfiles, tier: T3, type: files, cats: [files], default: false}
+  - {name: "openrepos", module: xpath, tier: T3, type: files, cats: [files], default: false}
+  - {name: "solidtorrents", module: solidtorrents, tier: T3, type: files, cats: [general]}
+  - {name: "tokyotoshokan", module: tokyotoshokan, tier: T3, type: files, cats: [general], default: false}
+  # ================ 生活工具 (life) × 16 ================
+  - {name: "apple maps", module: apple_maps, tier: T0, type: life, cats: [general], default: false}
+  - {name: "ebay", module: ebay, tier: T0, type: life, cats: [general], default: false, inactive: true}
+  - {name: "deepl", module: deepl, tier: T1, type: life, cats: [general], default: false, inactive: true}
+  - {name: "duckduckgo weather", module: duckduckgo_weather, tier: T1, type: life, cats: [general], default: false}
+  - {name: "openstreetmap", module: openstreetmap, tier: T1, type: life, cats: [general]}
+  - {name: "chefkoch", module: chefkoch, tier: T2, type: life, cats: [general]}
+  - {name: "currency", module: currency_convert, tier: T2, type: life, cats: [general]}
+  - {name: "geizhals", module: geizhals, tier: T2, type: life, cats: [general], default: false}
+  - {name: "libretranslate", module: libretranslate, tier: T2, type: life, cats: [general], default: false, inactive: true}
+  - {name: "mymemory translated", module: translated, tier: T2, type: life, cats: [general]}
+  - {name: "openmeteo", module: open_meteo, tier: T2, type: life, cats: [general], default: false}
+  - {name: "photon", module: photon, tier: T2, type: life, cats: [general]}
+  - {name: "wttr.in", module: wttr, tier: T2, type: life, cats: [general]}
+  - {name: "lingva", module: lingva, tier: T3, type: life, cats: [general]}
+  - {name: "mozhi", module: mozhi, tier: T3, type: life, cats: [general], default: false}
+  - {name: "shopify stock", module: shopify_stock, tier: T3, type: life, cats: [general], default: false}
