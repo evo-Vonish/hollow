@@ -270,3 +270,14 @@ async def fetch_batch(urls: list[str]) -> list[dict]:
 4. `scrapling install` 只装 chromium,但 `StealthyFetcher` 底层是 `patchright`(打补丁的 playwright)——`patchright` 用的是不是 `playwright install chromium` 下的同一份 Chromium 二进制?若 patchright 需要单独的 `patchright install chromium`,官方 `install` 命令没跑这一步,**需实测隐身档能否直接启动**。(源码 `cli.py:122` 只跑了 `playwright ... chromium`,未见 patchright install。)
 5. 非 Debian 宿主 / K8s 无 apt 环境下的部署路径(官方强绑 Debian + apt),若我们的目标 VPS 不是 Debian 系需另找方案。
 6. `.scrapling_dependencies_installed` 哨兵写在 site-packages,只读根文件系统容器里 `scrapling install` 是否会因无法 touch 而报错——若用我们推荐的"直接 playwright install"则规避,但若有代码路径调用了 `scrapling.cli.install` 需注意。
+
+---
+
+## 六、复核修正(由 00-overview 回源码裁决)
+
+本笔记 §4.3 骨架里两处 API 用法属跨子系统推断,已回源码(`fetchers/requests.py`、`custom.py`、`parser.py`)裁定并修正,详见 `00-overview.md` §7-A/§7-B/§7-C:
+
+- **`Fetcher.async_get` 不存在(致命,会直接 AttributeError)。** 静态异步接口是**独立类** `AsyncFetcher`,方法名 `.get`(与同步同名),返回 `Awaitable[Response]` 需 `await`(`requests.py:48-53`)。`Fetcher` 类只有同步 `get/post/put/delete`。骨架里 `Fetcher.async_get(url, ...)` → 应为 `await AsyncFetcher.get(url, ...)`。(原【待实测 1】已由源码解决。)
+- **交给 trafilatura 的 raw HTML 用 `resp.body`(bytes),不是 `resp.html_content`。** `html_content` 是 lxml 重序列化(丢注释/合并空白、实为 outer HTML),非原样 HTML;`resp.body` 是未改动原始字节(静态=响应体,浏览器=渲染后 `page.content()`)。见 02/08 号笔记裁定。骨架里 `resp.html_content`/`page.html_content` → 应为 `resp.body`/`page.body`。
+- **骨架里对每个 URL 新建 `async with Session(max_pages=1)` 与 [04][05][06] 的「长驻会话复用」冲突。** classmethod/每-URL 新建会付整浏览器冷启动代价;P2 应持有长驻 `Async*Session` 池(见 `00-overview.md` §4)。本笔记原已注明「骨架 API 名以 fetcher 子系统为准」,此处坐实。
+- **【待实测 2】部分解决**:per-call `fetch(url, **kwargs)` 确实支持覆盖 `timeout`/`solve_cloudflare`(`_controllers.py:313`、`_stealth.py:482` 的 `_validate`);但 **per-call 只传 `solve_cloudflare=True` 而不传 `timeout` 时,timeout 不会自动抬到 60000ms**(`validate_fetch` 只提取被显式覆盖的字段)——必须在**会话级**构造时就设 `timeout≥60000`。详见 `00-overview.md` §7-C。
