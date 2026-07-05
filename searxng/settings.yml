@@ -1,0 +1,38 @@
+# hollow AI Research Browser — SearXNG 部署配置(最小覆盖)
+# 依据: docs/research/searxng/06-settings.md 推荐草稿 + 00-overview.md 行动清单
+# 部署方式: 本地 Python 进程直跑 vendor/searxng 源码(不依赖 Docker)
+# 用法: SEARXNG_SETTINGS_PATH=<本文件绝对路径> python -m searx.webapp
+
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "hollow-search"
+  enable_metrics: true
+
+server:
+  # 生产环境用 SEARXNG_SECRET 环境变量注入强随机值
+  secret_key: "dev-only-change-me-in-production"
+  bind_address: "127.0.0.1"
+  port: 8888
+  # 内部可信调用方: 关限流(免 valkey 依赖), 限流放网关层
+  limiter: false
+  public_instance: false
+  base_url: false
+
+search:
+  # ★P1 头号必改: 开 JSON API, 否则 format=json 一律 403
+  formats:
+    - json
+    - html
+  safe_search: 0
+
+ui:
+  # 固定错误文案语言, 稳定 unresponsive_engines 的解析
+  default_locale: "en"
+
+outgoing:
+  # 每引擎默认超时
+  request_timeout: 5.0
+  # ★显式配置硬上限, 否则网关传的 timeout_limit 只能压低不能主导
+  max_request_timeout: 15.0
