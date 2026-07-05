@@ -1,7 +1,10 @@
 # 搜索源裁剪分析 · 面向场景与需求的踢出决策
 
 > 前置:[`01-engine-registry.md`](./01-engine-registry.md)(343 源注册表)
-> 状态:**分析稿,待拍板**。拍板后落入 `data/engine_registry.yaml` 的 `status` 字段。
+> 状态:**已拍板并落地(2026-07-06)**。`data/engine_registry.yaml` 已带 `status/removed_reason/scenes` 字段,
+> 生成器内置五道断言闸(removed=124、池矩阵逐格、defaults=42、判据计数)保证与本文逐格一致。
+> 落地时相对本文的两处修订:①startpage 降出通用默认(双环境实测全挂,见 docs/research/2026-07-06-local-env-verification.md),L3 43→42、L2 176→177;
+> ②中文场景 4 源按拍板放行(quark 家用 IP 实测复活)。§五遗留决策点当日全部拍板:DDG 进默认、应用商店留池小众定位、alt-video 留 L2、密钥暂不投。
 > 原则:踢出也要显式——每个被踢的源都记录判据,禁止静默消失(与 API 层同一条底线)。
 
 ## 一、踢出模型:三层而非一刀切

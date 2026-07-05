@@ -1,5 +1,10 @@
-# 生成 hollow 的搜索源注册表:知名度分级 (tier) + 内容类型 (type)
+# 生成 hollow 的搜索源注册表:知名度分级 (tier) + 内容类型 (type) + 裁剪状态 (status)
 # 数据源:vendor/searxng/searx/settings.yml @ a643858
+# status 依据:docs/design/02-engine-pruning.md(2026-07-06 拍板)
+#   L1 removed(五条判据,优先级 legal > keyed > inactive > lowq > offbrand)
+#   L2 pool(池内待命,点名可用) / L3 default(场景默认集,scenes 标场景)
+# 末尾五道断言闸:removed=124、池矩阵逐格=design/02 §三、defaults=42、
+# 判据计数 legal14/keyed15/inactive52/lowq38/offbrand5 —— 任何一格不对即退出报错
 import yaml, sys, collections
 
 TYPES = {
@@ -153,6 +158,96 @@ SUFFIX_TYPE = {
     "comments": "social", "hashtags": "social", "kaifa": "dev", "web": None,
 }
 
+# ===== 裁剪判据(docs/design/02 §二,2026-07-06 拍板) =====
+# 判据1 法律/灰色(14):种子站/影子图书馆/暗网,无条件踢
+REMOVED_LEGAL = {
+    "piratebay", "1337x", "kickass", "nyaa", "btdigg", "solidtorrents", "bt4g",
+    "tokyotoshokan", "Torznab EZTV", "annas archive", "library genesis",
+    "z-library", "ahmia", "torch",
+}
+# 判据2 需密钥/自建实例/私有连接器(15,含 piped/findfiles 全家):前提不成立
+REMOVED_KEYED = {
+    "google cse", "braveapi", "wolframalpha_api", "flickr_api", "youtube_api",
+    "libretranslate", "lingva", "mozhi", "elasticsearch",
+}
+REMOVED_KEYED_FAMILY = {"piped", "findfiles"}
+# 判据3 上游 inactive(62,其中 10 个与判据1/2 重叠):由 inactive 标记自动判定
+# 判据4 低质元搜索/玩具索引/SEO 聚合(38):按 family 全家踢
+REMOVED_LOWQ_FAMILY = {
+    "dogpile", "zapmeta", "infospace", "fireball", "presearch",       # 二手聚合
+    "yacy", "mwmbl", "wiby", "searchmysite", "crowdview",             # 玩具索引
+    "fastbot", "gabanza", "ayo", "fynd", "vuhuv", "tusksearch",       # SEO 小站
+    "resulthunter", "reloado", "searchtoday", "privacywall",
+}
+REMOVED_LOWQ = {"boardreader"}
+# 判据5 与研究定位无关(5)
+REMOVED_OFFBRAND = {"frinkiac", "findthatmeme", "9gag", "geizhals", "shopify stock"}
+
+# L3 场景默认集(docs/design/02 §四草案 + 2026-07-06 拍板与实测修订):
+# - 拍板:DDG 进通用默认;中文场景 baidu/quark/sogou/bilibili 全放(quark 家用IP实测复活)
+# - 实测修订:startpage 降出通用默认(双环境全挂:数据中心 denied/家用代理 parsing error)
+SCENES = {
+    "general":  ["brave", "duckduckgo", "mojeek", "wikipedia", "wikidata"],
+    "dev":      ["github", "stackoverflow", "askubuntu", "superuser", "mdn",
+                 "hackernews", "docker hub", "pypi", "npm", "arch linux wiki"],
+    "academic": ["arxiv", "semantic scholar", "pubmed", "crossref", "openalex",
+                 "google scholar"],
+    "news":     ["brave.news", "duckduckgo news", "bing news", "google news",
+                 "reuters", "wikinews"],
+    "images":   ["bing images", "duckduckgo images", "brave.images",
+                 "wikicommons.images", "unsplash", "flickr"],
+    "av":       ["youtube", "vimeo", "dailymotion", "soundcloud",
+                 "wikicommons.videos"],
+    "zh":       ["baidu", "quark", "sogou", "bilibili"],
+}
+
+# 条目备注(拍板/实测的可追溯记录)
+NOTES = {
+    "startpage": "2026-07-06 降出通用默认:双环境实测全挂(数据中心 denied/家用代理 parsing error),复活后可回",
+    "apple app store": "拍板:留池,小众定位",
+    "google play apps": "拍板:留池,小众定位",
+    "steam": "拍板:留池,小众定位",
+    "fdroid": "拍板:留池,小众定位",
+    "apk mirror": "拍板:留池,小众定位",
+    "bitchute": "拍板:留池(研究平台本身属正当需求)",
+    "odysee": "拍板:留池(研究平台本身属正当需求)",
+    "rumble": "拍板:留池(研究平台本身属正当需求)",
+    "google cse": "可复活:申请 CSE ID+key 即为接回 Google 的合法通道",
+    "deepl": "可复活:需密钥",
+    "springer nature": "可复活:需密钥",
+    "core.ac.uk": "可复活:需密钥",
+    "astrophysics data system": "可复活:需密钥",
+    "wolframalpha_api": "可复活:需密钥",
+    "marginalia": "可复活:独立索引质量好,等上游修 API 适配",
+}
+
+REVIVABLE = ["google cse", "deepl", "springer nature", "core.ac.uk",
+             "astrophysics data system", "wolframalpha_api", "marginalia"]
+
+_SCENE_OF: dict[str, list] = {}
+for _scene, _names in SCENES.items():
+    for _n in _names:
+        _SCENE_OF.setdefault(_n, []).append(_scene)
+
+
+def status_of(name, family, inactive):
+    """按优先级 legal > keyed > inactive > lowq > offbrand 判 removed;
+    再按场景表判 default;其余 pool。返回 (status, removed_reason, scenes)。"""
+    if name in REMOVED_LEGAL:
+        return "removed", "legal", None
+    if name in REMOVED_KEYED or family in REMOVED_KEYED_FAMILY:
+        return "removed", "keyed", None
+    if inactive:
+        return "removed", "inactive", None
+    if name in REMOVED_LOWQ or family in REMOVED_LOWQ_FAMILY:
+        return "removed", "lowq", None
+    if name in REMOVED_OFFBRAND:
+        return "removed", "offbrand", None
+    if name in _SCENE_OF:
+        return "default", None, _SCENE_OF[name]
+    return "pool", None, None
+
+
 def classify(name):
     if name in BASE:
         return BASE[name] + (None,)
@@ -178,12 +273,17 @@ for e in cfg["engines"]:
     tier, typ, family = c
     cats = e.get("categories", ["general"])
     if isinstance(cats, str): cats = [cats]
+    fam = family or name
+    inactive = bool(e.get("inactive"))
+    status, reason, scenes = status_of(name, fam, inactive)
     entries.append({
         "name": name, "module": e.get("engine","?"), "tier": tier, "type": typ,
-        "family": family or name,
+        "family": fam,
         "upstream_default": not (e.get("disabled") or e.get("inactive")),
-        "inactive": bool(e.get("inactive")),
+        "inactive": inactive,
         "cats": [str(c) for c in cats],
+        "status": status, "removed_reason": reason, "scenes": scenes,
+        "note": NOTES.get(name),
     })
 
 if missing:
@@ -198,14 +298,24 @@ stat = collections.Counter((x["type"],) for x in entries)
 stat_tier = collections.Counter((x["tier"],) for x in entries)
 cross = collections.Counter((x["type"],x["tier"]) for x in entries)
 
+st_count = collections.Counter(x["status"] for x in entries)
+reason_count = collections.Counter(x["removed_reason"] for x in entries if x["removed_reason"])
+
 out = []
-out.append("# hollow · 搜索源注册表 v1")
+out.append("# hollow · 搜索源注册表 v1.1(status 落地)")
 out.append("# 数据源: vendor/searxng/searx/settings.yml @ a643858 (343 个引擎)")
 out.append("# tier = 运营方知名度/可靠性分级; type = 内容域类型(10 类)")
 out.append("# upstream_default = SearXNG 上游默认是否启用; inactive = 上游标记彻底停用")
+out.append("# status = removed(L1 彻底移除,removed_reason 记判据) | pool(L2 池内待命)")
+out.append("#          | default(L3 场景默认集,scenes 标场景) —— docs/design/02,2026-07-06 拍板")
 out.append("meta:")
 out.append("  source: vendor/searxng/searx/settings.yml@a643858")
-out.append("  updated: '2026-07-05'")
+out.append("  updated: '2026-07-06'")
+out.append("  status_model: 343 = removed(124) + pool(177) + default(42); 判据 legal(14)+keyed(15)+inactive(52)+lowq(38)+offbrand(5)")
+out.append("  revivable: [" + ", ".join(f'"{n}"' for n in REVIVABLE) + "]  # 卡密钥/上游修复,条件成熟优先接回")
+out.append("  scenes:")
+for k, v in SCENES.items():
+    out.append(f"    {k}: [" + ", ".join(f'"{n}"' for n in v) + "]")
 out.append("  tiers:")
 for k,v in TIERS.items(): out.append(f"    {k}: {v}")
 out.append("  types:")
@@ -219,12 +329,55 @@ for x in entries:
     flags = []
     if not x["upstream_default"]: flags.append("default: false")
     if x["inactive"]: flags.append("inactive: true")
+    flags.append(f"status: {x['status']}")
+    if x["removed_reason"]: flags.append(f"removed_reason: {x['removed_reason']}")
+    if x["scenes"]: flags.append("scenes: [" + ", ".join(x["scenes"]) + "]")
+    if x["note"]: flags.append(f"note: \"{x['note']}\"")
     flag_s = (", " + ", ".join(flags)) if flags else ""
     cats = "[" + ", ".join(x["cats"]) + "]"
     out.append(f"  - {{name: \"{x['name']}\", module: {x['module']}, tier: {x['tier']}, type: {x['type']}, cats: {cats}{flag_s}}}")
 
-open("data/engine_registry.yaml","w").write("\n".join(out)+"\n")
+# ===== 五道断言闸(docs/design/02 §一/§三 + 2026-07-06 修订) =====
+EXPECTED_POOL_MATRIX = {  # (type, tier) -> 池内数量(pool + default),design/02 §三
+    ("web","T0"):4, ("web","T1"):10, ("web","T2"):4, ("web","T3"):0,
+    ("knowledge","T0"):9, ("knowledge","T1"):7, ("knowledge","T2"):9, ("knowledge","T3"):6,
+    ("academic","T0"):2, ("academic","T1"):3, ("academic","T2"):4, ("academic","T3"):0,
+    ("dev","T0"):3, ("dev","T1"):16, ("dev","T2"):19, ("dev","T3"):6,
+    ("news","T0"):3, ("news","T1"):8, ("news","T2"):2, ("news","T3"):1,
+    ("images","T0"):6, ("images","T1"):16, ("images","T2"):9, ("images","T3"):10,
+    ("av","T0"):8, ("av","T1"):15, ("av","T2"):10, ("av","T3"):4,
+    ("social","T0"):1, ("social","T1"):1, ("social","T2"):6, ("social","T3"):1,
+    ("files","T0"):3, ("files","T1"):1, ("files","T2"):2, ("files","T3"):1,
+    ("life","T0"):1, ("life","T1"):2, ("life","T2"):6, ("life","T3"):0,
+}
+EXPECTED_REASONS = {"legal":14, "keyed":15, "inactive":52, "lowq":38, "offbrand":5}
+errors = []
+if st_count["removed"] != 124:
+    errors.append(f"removed={st_count['removed']} != 124")
+if st_count["default"] != 42:  # 43 草案 − startpage(2026-07-06 降出)
+    errors.append(f"default={st_count['default']} != 42")
+pool_matrix = collections.Counter(
+    (x["type"], x["tier"]) for x in entries if x["status"] in ("pool","default"))
+for key, want in EXPECTED_POOL_MATRIX.items():
+    got = pool_matrix.get(key, 0)
+    if got != want:
+        names = sorted(x["name"] for x in entries
+                       if (x["type"],x["tier"])==key and x["status"] in ("pool","default"))
+        errors.append(f"pool{key}: got {got} want {want} -> {names}")
+for reason, want in EXPECTED_REASONS.items():
+    if reason_count.get(reason,0) != want:
+        errors.append(f"reason {reason}: got {reason_count.get(reason,0)} want {want}")
+for scene, names in SCENES.items():  # 默认集必须全部真实存在且未被踢
+    by_name = {x["name"]: x for x in entries}
+    for n in names:
+        if n not in by_name: errors.append(f"scene {scene}: '{n}' 不存在于注册表")
+        elif by_name[n]["status"] != "default": errors.append(f"scene {scene}: '{n}' status={by_name[n]['status']}")
+if errors:
+    print("VALIDATION FAILED:"); [print(" ", e) for e in errors]; sys.exit(1)
+
+open("data/engine_registry.yaml","w",encoding="utf-8").write("\n".join(out)+"\n")
 print("entries:", len(entries))
+print("status:", dict(st_count), "| reasons:", dict(reason_count))
 print("by type:", dict(sorted(stat.items())))
 print("by tier:", dict(sorted(stat_tier.items())))
 print()
