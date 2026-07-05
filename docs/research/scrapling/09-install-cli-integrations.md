@@ -19,10 +19,10 @@
 
 ## 二、关键 API / 参数详解
 
-### 2.1 extras 定义(`pyproject.toml:99-133`)
+### 2.1 extras 定义(`pyproject.toml:72-96`)
 
 ```
-version = "0.4.10"                       # 静态版本(pyproject.toml:16-17)
+version = "0.4.10"                       # 静态版本(pyproject.toml:8)
 
 dependencies (核心, 裸装 pip install scrapling):
     lxml>=6.1.1, cssselect>=1.4.0, orjson>=3.11.8, tld>=0.13.2,
@@ -47,7 +47,7 @@ all     = [ scrapling[ai,shell] ]
 - **裸 `pip install scrapling` 只装解析器**,`import scrapling.fetchers` 会直接 `ModuleNotFoundError`(README:485 明确写了)。
 - `fetchers` 是我们唯一必须的 extra。`ai`/`shell` 都 `include scrapling[fetchers]`,是超集。
 - `playwright==1.61.0` 和 `patchright==1.61.1` 是**精确等号 pin**,不是 `>=`。这对浏览器二进制版本匹配至关重要(见问题 4)。
-- `requires-python = ">=3.10"`(`pyproject.toml:56`),官方 Docker 用 `python:3.12-slim-trixie`。
+- `requires-python = ">=3.10"`(`pyproject.toml:35`),官方 Docker 用 `python:3.12-slim-trixie`。
 - 入口点:`scrapling = "scrapling.cli:main"`(`pyproject.toml`,`[project.scripts]`)。
 
 ### 2.2 `scrapling install` 到底干了什么(`cli.py:109-141`)
@@ -110,7 +110,7 @@ def install(force):
 
 ### 2.5 Scrapy 集成(`integrations/scrapy.py`)
 
-`scrapling_response` 装饰器 + `convert_response`,把 Scrapy 的 Response 转成 Scrapling 的 Response。**与 P2 完全无关**,我们不用 Scrapy。唯一可借鉴点:`convert_response`(`scrapy.py:24-56`)演示了如何**手工构造一个 `scrapling.engines.toolbelt.custom.Response`**(传 url/content/status/reason/cookies/headers/encoding/method/meta)。如果 P2 要为失败 URL 造占位 Response 对象,这是构造签名的参考;但更简单的做法是我们自己定义 Pydantic 出参模型,不必复用它的 Response。
+`scrapling_response` 装饰器 + `convert_response`,把 Scrapy 的 Response 转成 Scrapling 的 Response。**与 P2 完全无关**,我们不用 Scrapy。唯一可借鉴点:`convert_response`(`scrapy.py:24-56`)演示了如何**手工构造一个 `scrapling.engines.toolbelt.custom.Response`**(传 url/content/status/reason/cookies/headers/request_headers/encoding/method/meta)。如果 P2 要为失败 URL 造占位 Response 对象,这是构造签名的参考;但更简单的做法是我们自己定义 Pydantic 出参模型,不必复用它的 Response。
 
 ---
 
@@ -118,7 +118,7 @@ def install(force):
 
 ### 问题 1:安装方式与 extras——`pip install "scrapling[fetchers]"` 装了什么?`scrapling install` 干了什么?
 
-- `pip install "scrapling[fetchers]"` 在核心解析依赖之上,额外装:`click`、`curl_cffi`、**`playwright==1.61.0`**、**`patchright==1.61.1`**、`browserforge`、`apify-fingerprint-datapoints`、`msgspec`、`anyio`、`protego`(`pyproject.toml:100-110`)。这一步**只装 Python 包,不下浏览器二进制**。
+- `pip install "scrapling[fetchers]"` 在核心解析依赖之上,额外装:`click`、`curl_cffi`、**`playwright==1.61.0`**、**`patchright==1.61.1`**、`browserforge`、`apify-fingerprint-datapoints`、`msgspec`、`anyio`、`protego`(`pyproject.toml:73-83`)。这一步**只装 Python 包,不下浏览器二进制**。
 - `scrapling install`(`cli.py:119`)才下浏览器:跑 `playwright install chromium`(下 Chromium 二进制)+ `playwright install-deps chromium`(apt 装系统 `.so`)+ 更新 TLD 名单,然后落哨兵文件。**只装 chromium,不装 firefox/webkit**(源码 `cli.py:122`,与 docs 措辞"all browsers"不符,以源码为准)。
 - 对 P2:我们需要三种 fetcher(静态 + 动态 + 隐身),`[fetchers]` 就够了。**不需要 `[ai]` 或 `[shell]`**,除非想复用 MCP 的封装或 `extract` CLI。
 
@@ -137,8 +137,8 @@ def install(force):
 
 ### 问题 4:版本固定建议
 
-- **pin `scrapling==0.4.10`**(与本快照一致,`pyproject.toml:17`)。Scrapling 处于 `Development Status :: 4 - Beta`(`pyproject.toml:44`),小版本间 API 可能动,精确 pin 最安全。
-- 关键:`[fetchers]` 里 `playwright==1.61.0`、`patchright==1.61.1` 是 Scrapling **精确 pin** 的(`pyproject.toml:104-105`)。**浏览器二进制版本与 playwright 库版本强绑定**——`playwright install chromium` 下的 Chromium 修订号由 playwright 库版本决定。所以:
+- **pin `scrapling==0.4.10`**(与本快照一致,`pyproject.toml:8`)。Scrapling 处于 `Development Status :: 4 - Beta`(`pyproject.toml:38`),小版本间 API 可能动,精确 pin 最安全。
+- 关键:`[fetchers]` 里 `playwright==1.61.0`、`patchright==1.61.1` 是 Scrapling **精确 pin** 的(`pyproject.toml:76-77`)。**浏览器二进制版本与 playwright 库版本强绑定**——`playwright install chromium` 下的 Chromium 修订号由 playwright 库版本决定。所以:
   - 不要单独升/降 playwright,让它跟着 `scrapling` 的 pin 走。
   - `scrapling install` 必须在 `pip install "scrapling[fetchers]==0.4.10"` **之后**跑,保证二进制匹配库。
   - 升级 Scrapling 时(改 0.4.10 → 新版)**必须重跑 `scrapling install --force`**,否则可能出现库版本升了、Chromium 二进制没换的错配。

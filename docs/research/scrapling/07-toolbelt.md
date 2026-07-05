@@ -76,7 +76,7 @@ Toolbelt 是 Scrapling 引擎层的“工具带”,不直接对外,是被三个 
 ### 2.5 `convertor.py` —— `ResponseFactory`(响应归一化)
 
 - 把三种来源统一成 `Response`:
-  - `from_http_request(curl_response, parser_arguments, meta)`(`convertor.py:301`):curl_cffi → Response,直接取 `status_code/reason/encoding/cookies/headers/history`。
+  - `from_http_request(response, parser_arguments, meta)`(`convertor.py:301`,首参名是 `response`、类型 `CurlResponse`):curl_cffi → Response,直接取 `status_code/reason/encoding/cookies/headers/history`。
   - `from_playwright_response(...)` / `from_async_playwright_response(...)`(`convertor.py:82,229`):Playwright → Response。**关键:HTML 正文取的是 `page.content()`(渲染后 DOM),不是网络响应 body**——当 content-type 含 `html` 时走 `_get_page_content` 抓渲染后 HTML 并强制 utf-8(`convertor.py:122-125,271-273`)。这正是 P2 需要的“浏览器渲染后 HTML”。
   - `_get_page_content(page, max_retries=20)`(`convertor.py:199`):Playwright `page.content()` 在某些平台会抛错,这里做了重试(每次 500ms,最多 20 次)的 workaround。
   - `__extract_browser_encoding`(`convertor.py:28`):正则 `charset=...` 从 content-type 抠编码,Playwright 不自带。
