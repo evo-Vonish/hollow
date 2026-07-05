@@ -25,6 +25,18 @@
 - 自研边界只有三样:API 编排层、Evidence Pack 组装、阅读器前端
 - SearXNG 的 simple 前端/preferences 界面**不是**要复用的资产(要被 P4 自研阅读器取代),但其"设置数据模型"(引擎启停/分类/偏好存差异/可导出)值得借鉴
 
+## 本地环境首启(给下一会话的我)
+
+**第一件事:先把仓库 clone 下来,再干别的。**
+
+```bash
+git clone https://github.com/evo-Vonish/hollow.git
+cd hollow
+git checkout claude/new-project-setup-1dzma1   # 所有工作都在这个分支
+```
+
+clone 完先读 `docs/memory/2026-07-05-session-01.md` 恢复全部上下文(决策、实测结论、待拍板事项),然后按下方「环境注意」重验沙箱限制是否在本地消失。
+
 ## 仓库结构
 
 ```
