@@ -205,3 +205,16 @@ hollow/
 2. **默认引擎集**:基于上轮实测(brave/startpage 在数据中心 IP 被封,DDG/baidu/sogou/wikipedia/arxiv 可用),MVP 默认集我建议 `[duckduckgo, wikipedia, arxiv]`(全实测可用)——可否?
 3. **fetch_top_n 默认值**:5 条(项目书默认)可以吗?
 4. **框架**:FastAPI(项目书选型)确认?
+
+### 拍板结果(2026-07-06,已按此实现)
+
+1. 净化:✅ MVP 接 trafilatura(markdown 输出,失败回退 raw HTML)。
+2. 默认引擎集:**国际+国内"都来"** → `[duckduckgo, wikipedia, arxiv, baidu, sogou, quark]`;本地开发前提是系统代理常开(见 docs/research/2026-07-06-local-env-verification.md)。
+3. fetch_top_n:✅ 默认 5。
+4. 框架:✅ FastAPI。
+5. 搜索源侧同轮拍板:DDG 进默认集(限速另议)、中文源按草案全放、应用商店源留池但归小众、alt-video 留 L2、密钥暂不投。
+
+实现落地:`api/`(2026-07-06),经 Opus 对抗审查(15 候选缺陷 → 8 确认 → 全部修复):
+bang 防护扩展到 `!/:/<` 前缀 token、纯 bang 清空回 400、`resp.json()` 异常归一 502、
+净化侧 gather 加占位兜底、非受信 result 字段防御、专用抓取线程池+进程级闸
+(排队不计入超时)、空串环境变量回退默认值。

@@ -37,8 +37,9 @@ outgoing:
   # ★显式配置硬上限, 否则网关传的 timeout_limit 只能压低不能主导
   max_request_timeout: 15.0
   # 国内直连时被墙引擎(wikipedia/ddg/brave/mojeek/bing)全部 timeout。
-  # 2026-07-06 实测: 解开下面注释走本地代理后全部复活, 且国内源(baidu/sogou/
-  # bilibili/quark)经代理分流依然正常, 无需引擎级拆分路由。代理地址按本机改。
-  # proxies:
-  #   all://:
-  #     - http://127.0.0.1:1088
+  # 2026-07-06 实测: 走本地代理后全部复活, 且国内源(baidu/sogou/bilibili/quark)
+  # 经代理分流依然正常, 无需引擎级拆分路由。代理地址按本机改; VPS 直连部署时注释掉。
+  # (2026-07-06 拍板: 默认引擎集国际+国内"都来", 本地开发代理常开是前提)
+  proxies:
+    all://:
+      - http://127.0.0.1:1088

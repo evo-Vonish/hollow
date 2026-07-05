@@ -1,0 +1,161 @@
+# -*- coding: utf-8 -*-
+"""SearXNG HTTP 客户端:固定浏览器风格头 + 参数映射 + 失败对账。
+
+实测契约(docs/research/searxng/11-live-verification.md +
+docs/research/2026-07-06-local-env-verification.md):
+- POST /search, form-urlencoded, format=json, 必须带浏览器风格头
+- unresponsive_engines 序列化为 [["engine", "message"], ...]
+- wikipedia 等引擎的产出走 infoboxes/answers 通道,不在 results 里 ——
+  对账时必须算上,否则会被差集误判为失败
+- bing 直连出现过"0 条且无报错"的静默失败 → 差集兜底不可省
+"""
+import time
+from dataclasses import dataclass, field
+
+import httpx
+
+from api import config
+from api.models import EngineFailure
+
+# 不带这组头,部分引擎(尤其 ddg)行为异常;与两轮实测保持一致
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
+}
+
+
+class SearxUnavailableError(Exception):
+    """SearXNG 进程不可达/返回异常状态码/返回非 JSON 响应。"""
+
+
+class InvalidQueryError(Exception):
+    """q 经 bang 防护清洗后为空(整条 q 只有 !/:/< 前缀 token)——客户端输入问题。"""
+
+
+@dataclass
+class SearchOutcome:
+    results: list[dict] = field(default_factory=list)
+    infoboxes: list[dict] = field(default_factory=list)
+    answers: list[dict] = field(default_factory=list)
+    engines_used: list[str] = field(default_factory=list)
+    engines_failed: list[EngineFailure] = field(default_factory=list)
+    took_ms: int = 0
+    q_sanitized: bool = False
+
+
+def sanitize_bang(q: str) -> tuple[str, bool]:
+    """bang/filter 防护。SearXNG 的 RawTextQuery 对 q 的**每个** token 跑前缀解析:
+    `!` 引擎/外部 bang(!!g 甚至 302 跳外站,劫持 json —— session-01 实测)、
+    `:` 语言覆盖(:de 会架空请求体 language 参数)、`<` 超时覆盖(<3 架空引擎超时)。
+    见 docs/research/searxng/01-api-surface.md §前缀 token。统一剥掉 token 开头的
+    这三类字符,并在 meta.q_sanitized 标记是否真的剥过(纯空白规整不算)。"""
+    tokens = q.split()
+    stripped = [t.lstrip("!:<") for t in tokens]
+    cleaned = [t for t in stripped if t]  # 纯前缀 token 剥完为空则丢弃
+    return (" ".join(cleaned), cleaned != tokens)
+
+
+def _collect_used_engines(payload: dict) -> set[str]:
+    """从 results/infoboxes/answers 三个通道收集实际产出结果的引擎名。"""
+    used: set[str] = set()
+    for r in payload.get("results", []) or []:
+        for e in r.get("engines") or []:
+            used.add(e)
+        if r.get("engine"):
+            used.add(r["engine"])
+    for channel in ("infoboxes", "answers"):
+        for r in payload.get(channel, []) or []:
+            if r.get("engine"):
+                used.add(r["engine"])
+            for e in r.get("engines") or []:
+                used.add(e)
+    return used
+
+
+def reconcile(requested: list[str], payload: dict) -> tuple[list[str], list[EngineFailure]]:
+    """失败对账:unresponsive_engines + 「请求集 − 结果集 − 失败集」差集兜底。
+
+    差集兜底抓的是"引擎既没产出也没报错"的静默失败(bing 直连实测出现过),
+    以及 engines= 点名无效被 SearXNG 悄悄回退默认集的情况。
+    """
+    used = _collect_used_engines(payload)
+    failed: dict[str, str] = {}
+    for entry in payload.get("unresponsive_engines", []) or []:
+        # 序列化格式 [engine, message]
+        if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+            failed[str(entry[0])] = str(entry[1])
+        elif isinstance(entry, str):
+            failed[entry] = "unresponsive"
+    for engine in requested:
+        if engine not in used and engine not in failed:
+            failed[engine] = "no results and no error reported (silent failure)"
+    failures = [EngineFailure(engine=e, reason=r) for e, r in sorted(failed.items())]
+    return sorted(used), failures
+
+
+async def search(
+    client: httpx.AsyncClient,
+    *,
+    q: str,
+    engines: list[str],
+    categories: str | None = None,
+    language: str = "auto",
+    time_range: str | None = None,
+    safesearch: int = 0,
+) -> SearchOutcome:
+    safe_q, sanitized = sanitize_bang(q)
+    if not safe_q:
+        # 空 q 发给 SearXNG 会回 400,若透传会被误映射成 502(上游没坏)
+        raise InvalidQueryError(
+            "q is empty after bang/filter sanitization (only !/:/< prefixed tokens)"
+        )
+    data = {
+        "q": safe_q,
+        "format": "json",
+        "language": language,
+        "safesearch": str(safesearch),
+        "pageno": "1",
+        "engines": ",".join(engines),
+    }
+    if categories:
+        data["categories"] = categories
+    if time_range:
+        data["time_range"] = time_range
+
+    t0 = time.perf_counter()
+    try:
+        resp = await client.post(
+            f"{config.SEARXNG_URL}/search",
+            data=data,
+            headers=BROWSER_HEADERS,
+            timeout=config.SEARCH_TIMEOUT,
+        )
+    except httpx.HTTPError as e:
+        raise SearxUnavailableError(f"SearXNG unreachable: {e!r}") from e
+    took_ms = int((time.perf_counter() - t0) * 1000)
+
+    if resp.status_code != 200:
+        raise SearxUnavailableError(
+            f"SearXNG /search returned HTTP {resp.status_code}: {resp.text[:200]}"
+        )
+    try:
+        payload = resp.json()
+    except ValueError as e:  # 200 但 body 非 JSON(截断/反代错误页) → 归一为上游不可用
+        raise SearxUnavailableError(
+            f"SearXNG /search returned non-JSON body: {resp.text[:200]!r}"
+        ) from e
+
+    used, failures = reconcile(engines, payload)
+    return SearchOutcome(
+        results=payload.get("results", []) or [],
+        infoboxes=payload.get("infoboxes", []) or [],
+        answers=payload.get("answers", []) or [],
+        engines_used=used,
+        engines_failed=failures,
+        took_ms=took_ms,
+        q_sanitized=sanitized,
+    )

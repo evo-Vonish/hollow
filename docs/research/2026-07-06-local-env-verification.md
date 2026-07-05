@@ -69,6 +69,14 @@ venv:`.venv-searx` = `vendor/searxng/requirements.txt` + `tzdata`。
 - venv:`.venv-api` = `scrapling[fetchers]==0.4.10` + `trafilatura`。
 - 静态档走 env 代理(curl_cffi trust_env),清掉 env 即直连——网关后续若要"国内直连/国外走代理"可在请求级控制,当前无必要。
 
+### ⚠️ 追加发现(写第一个 API 时踩到):SSRF 防护 × localhost 代理 = 误杀一切重定向
+
+- scrapling 0.4.10 / curl_cffi 0.15 的 `follow_redirects` 默认 `"safe"`(SSRF 防护:拒绝跳向内网 IP 的重定向)。它检查的是"这一跳要连接的 IP"——**经 localhost 代理时每一跳连的都是代理自己(127.0.0.1)**,导致一切重定向被拒(实测 http→https 与 https→https 全灭,报 `CurlError(7) ... SSRF protection`)。DNS 本身干净,与污染无关,是结构性不兼容。
+- 修法(api/config.py):走代理 → `follow_redirects=True`(代理即网络边界);直连 → 保留 `"safe"`(网关抓任意搜索结果 URL,SSRF 防护有真实价值)。可用 `HOLLOW_FOLLOW_REDIRECTS=safe|all` 显式覆盖。
+- 顺带:Scrapling 静态档**内置 retries=3**(每次失败 sleep 1s 再试),单 URL 线程内最坏 3×timeout,外层 wait_for 兜不住 → 网关显式传 `retries=1`(单次尝试),超时预算才可控。
+- 另:SearXNG 的 arxiv 引擎给出的结果 URL 是 `http://arxiv.org/...`(非 https),直连时 80 端口整个超时;经代理 301→https 正常。依赖上面的重定向修法。
+- Windows 杂项:本机控制台代码页是 cp932,Python 子进程打非 ASCII 要设 `PYTHONIOENCODING=utf-8`。
+
 ## 五、Scrapling 浏览器档(playwright 1.61.0 + chromium)
 
 `python -m playwright install chromium`(经代理下载)后 DynamicFetcher 直接可用,**沙箱的版本不匹配/代理不通问题在本地不存在**:

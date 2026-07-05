@@ -1,0 +1,8 @@
+# hollow API gateway(.venv-api)。SearXNG 进程另有 venv:
+#   .venv-searx = vendor/searxng/requirements.txt + tzdata(Windows 时区库)
+fastapi
+uvicorn
+httpx
+pydantic
+scrapling[fetchers]==0.4.10
+trafilatura

@@ -40,24 +40,41 @@ clone 完先读 `docs/memory/2026-07-05-session-01.md` 恢复全部上下文(决
 ## 仓库结构
 
 ```
+api/               ★第一个 API:POST /v0/research(FastAPI 网关,2026-07-06 落地)
+compat/win/        Windows 兼容桩(pwd 模块;vendor 零改动的前提)
 vendor/searxng/    SearXNG 完整快照 @ a643858(未修改;见 vendor/UPSTREAM.md)
 vendor/scrapling/  Scrapling v0.4.10 快照 @ 8e7bc99(未修改)
-searxng/settings.yml   我们的 SearXNG 最小部署配置(已实测)
+searxng/settings.yml   我们的 SearXNG 最小部署配置(已实测;本地代理已启用)
 data/engine_registry.yaml  343 个搜索源注册表(tier T0-T3 × 10 类型)
 tools/gen_engine_registry.py  注册表生成器(改分类后重跑,未分类会报错)
-docs/research/     两大基建源码研读笔记(21 篇,Opus workflow 产出)
+tools/run_local.ps1 / .sh     一键双起 SearXNG(8888) + 网关(8080)
+requirements.txt   网关依赖(.venv-api);SearXNG 依赖另在 .venv-searx
+docs/research/     两大基建源码研读笔记(21 篇)+ 环境验证(2026-07-06 本地)
 docs/design/       设计文档(注册表/裁剪/第一个API)
 docs/memory/       会话记忆
 ```
 
-## 快速启动 SearXNG(本地进程)
+## 快速启动(本地)
+
+```powershell
+# Windows 一键(前置:两个 venv 已建,见下)
+tools\run_local.ps1     # SearXNG :8888 + 网关 :8080
+# 冒烟: Invoke-RestMethod http://127.0.0.1:8080/healthz
+# 请求: POST /v0/research {"q":"..."} → Evidence Pack(见 docs/design/03 §4)
+```
 
 ```bash
-python3 -m venv .venv-searx && .venv-searx/bin/pip install -r vendor/searxng/requirements.txt
+# venv 建法(Windows 用 .venv-*\Scripts\python.exe)
+python -m venv .venv-searx && .venv-searx/bin/pip install -r vendor/searxng/requirements.txt tzdata
+python -m venv .venv-api   && .venv-api/bin/pip install -r requirements.txt
+# SearXNG 单起(Linux;Windows 需 PYTHONPATH 前置 compat/win,见 tools/run_local.ps1)
 SEARXNG_SETTINGS_PATH=$PWD/searxng/settings.yml PYTHONPATH=$PWD/vendor/searxng \
   .venv-searx/bin/python -m searx.webapp   # → http://127.0.0.1:8888/healthz
 # 调用:POST /search, form-urlencoded, format=json + 浏览器风格请求头(UA/Accept含text/html/Accept-Language)
 ```
+
+**本地(中国家用网)前提**:系统代理常开(默认引擎集含被墙引擎);Windows/代理相关的坑与修法全在
+`docs/research/2026-07-06-local-env-verification.md`(pwd 桩/tzdata/SSRF×localhost代理误杀重定向/retries=1)。
 
 ## 环境注意(云沙箱 → 本地的差异)
 
