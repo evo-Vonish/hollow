@@ -25,5 +25,4 @@ __pycache__/
 *.pyc
 .venv/
 venv/
-.venv-searx/
-.venv-scrap/
+.venv-*/
