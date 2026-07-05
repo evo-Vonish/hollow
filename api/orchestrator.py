@@ -5,6 +5,7 @@
 每个被选中的 URL 必有一条占位记录,任何一侧失败都显式可见。
 """
 import asyncio
+import time
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
@@ -106,7 +107,40 @@ def _assemble_item(candidate: dict, fr: fetcher.FetchResult, do_purify: bool) ->
     )
 
 
-async def run_research(req: ResearchRequest, client: httpx.AsyncClient) -> ResearchResponse:
+async def _fetch_and_assemble(
+    index: int, candidate: dict, req: ResearchRequest, semaphore: asyncio.Semaphore
+) -> tuple[int, ResearchItem, float]:
+    """单条:抓取 -> 净化 -> 组装。任何异常都收敛成占位 item(禁止静默丢弃)。
+    返回的第三项是抓取完成时刻(perf_counter),供 fetch.took_ms 保持
+    "只计抓取段"的旧口径 —— 净化/组装耗时不计入账目(审查确认项)。"""
+    fr = await fetcher.fetch_one(
+        candidate["url"],
+        semaphore=semaphore,
+        timeout_s=req.fetch_timeout,
+        impersonate=config.IMPERSONATE,
+    )
+    fetch_done = time.perf_counter()
+    try:
+        item = await asyncio.to_thread(_assemble_item, candidate, fr, req.purify)
+    except Exception as e:  # CancelledError 是 BaseException,不拦,正常传播
+        item = ResearchItem(
+            url=(_safe_str(candidate.get("url")) or fr.url),
+            fetch_status=fr.status,  # type: ignore[arg-type]
+            http_status=fr.http_status,
+            fetched_at=fr.fetched_at,
+            error=f"assemble failed: {type(e).__name__}: {e}",
+        )
+    return index, item, fetch_done
+
+
+async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
+    """事件流版编排:search → 逐条完成即产出 → 汇总。
+
+    产出三种事件(供 /v1 SSE 与非流式共用一条代码路径):
+      ("search", SearchMeta, selected_count)
+      ("item", index, ResearchItem)   —— 按完成顺序,index 是选取顺位
+      ("done", ResearchResponse)
+    """
     engines = req.engines or config.DEFAULT_ENGINES
 
     # ① 搜索
@@ -122,67 +156,70 @@ async def run_research(req: ResearchRequest, client: httpx.AsyncClient) -> Resea
 
     # ② 选取 top-N
     candidates = select_candidates(outcome.results, req.fetch_top_n)
-
-    # ③ 并行抓取(信号量 + 硬超时 + 占位)
-    urls = [c["url"] for c in candidates]
-    fetch_results, fetch_took_ms = await fetcher.fetch_all(
-        urls,
-        concurrency=config.FETCH_CONCURRENCY,
-        timeout_s=req.fetch_timeout,
-        impersonate=config.IMPERSONATE,
+    search_meta = SearchMeta(
+        engines_requested=engines,
+        engines_used=outcome.engines_used,
+        engines_failed=outcome.engines_failed,
+        results_total=len(outcome.results),
+        took_ms=outcome.took_ms,
+        q_sanitized=outcome.q_sanitized,
     )
+    yield ("search", search_meta, len(candidates))
 
-    # ④+⑤ 净化(CPU 型,丢线程池)+ 组装
-    # return_exceptions=True + 占位:与抓取侧同款兜底,单条组装异常
-    # 只影响自己那条 item,不变量 len(items)==requested 在异常路径也成立
-    gathered = await asyncio.gather(
-        *(
-            asyncio.to_thread(_assemble_item, c, fr, req.purify)
-            for c, fr in zip(candidates, fetch_results)
-        ),
-        return_exceptions=True,
-    )
-    items: list[ResearchItem] = []
-    for c, fr, res in zip(candidates, fetch_results, gathered):
-        if isinstance(res, BaseException):
-            items.append(
-                ResearchItem(
-                    url=(_safe_str(c.get("url")) or fr.url),
-                    fetch_status=fr.status,  # type: ignore[arg-type]
-                    http_status=fr.http_status,
-                    fetched_at=fr.fetched_at,
-                    error=f"assemble failed: {type(res).__name__}: {res}",
-                )
-            )
-        else:
-            items.append(res)
+    # ③④⑤ 并行[抓取→净化→组装],谁先完成谁先产出
+    semaphore = asyncio.Semaphore(config.FETCH_CONCURRENCY)
+    t0 = time.perf_counter()
+    tasks = [
+        asyncio.create_task(_fetch_and_assemble(i, c, req, semaphore))
+        for i, c in enumerate(candidates)
+    ]
+    items: list[ResearchItem | None] = [None] * len(candidates)
+    last_fetch_done = t0
+    try:
+        for fut in asyncio.as_completed(tasks):
+            index, item, fetch_done = await fut
+            items[index] = item
+            last_fetch_done = max(last_fetch_done, fetch_done)
+            yield ("item", index, item)
+    finally:
+        for t in tasks:  # 消费方中途断开(SSE 客户端跑了)时不留孤儿任务
+            t.cancel()
+    # 口径与旧版一致:只计抓取段(至最后一条 fetch 完成),净化/组装不计入
+    fetch_took_ms = int((last_fetch_done - t0) * 1000)
 
+    final_items = [it for it in items if it is not None]
     counts = {"ok": 0, "failed": 0, "timeout": 0, "blocked": 0}
-    for it in items:
+    for it in final_items:
         counts[it.fetch_status] += 1
 
-    return ResearchResponse(
-        query=req.q,
-        created_at=datetime.now(timezone.utc)
-        .isoformat(timespec="seconds")
-        .replace("+00:00", "Z"),
-        items=items,
-        meta=ResearchMeta(
-            search=SearchMeta(
-                engines_requested=engines,
-                engines_used=outcome.engines_used,
-                engines_failed=outcome.engines_failed,
-                results_total=len(outcome.results),
-                took_ms=outcome.took_ms,
-                q_sanitized=outcome.q_sanitized,
-            ),
-            fetch=FetchMeta(
-                requested=len(items),
-                ok=counts["ok"],
-                failed=counts["failed"],
-                timeout=counts["timeout"],
-                blocked=counts["blocked"],
-                took_ms=fetch_took_ms,
+    yield (
+        "done",
+        ResearchResponse(
+            query=req.q,
+            created_at=datetime.now(timezone.utc)
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z"),
+            items=final_items,
+            meta=ResearchMeta(
+                search=search_meta,
+                fetch=FetchMeta(
+                    requested=len(final_items),
+                    ok=counts["ok"],
+                    failed=counts["failed"],
+                    timeout=counts["timeout"],
+                    blocked=counts["blocked"],
+                    took_ms=fetch_took_ms,
+                ),
             ),
         ),
     )
+
+
+async def run_research(req: ResearchRequest, client: httpx.AsyncClient) -> ResearchResponse:
+    """非流式:消费事件流,返回最终 ResearchResponse(/v0 与 /v1 非流式共用)。"""
+    final: ResearchResponse | None = None
+    async for event in run_research_events(req, client):
+        if event[0] == "done":
+            final = event[1]
+    assert final is not None  # 生成器保证以 done 收尾
+    return final

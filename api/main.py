@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from api import config, orchestrator
 from api.models import ResearchRequest, ResearchResponse
@@ -25,6 +27,30 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="hollow", version="0.0.1", lifespan=lifespan)
+
+# /v1 正式 API 面(OpenAI 风格的封套/错误/SSE,自家域模型;见 api/v1.py)
+from api.v1 import router as _v1_router  # noqa: E402
+
+app.include_router(_v1_router)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request, exc: RequestValidationError):
+    """pydantic 校验失败统一转 OpenAI 风格错误封套(400),不走 FastAPI 默认
+    422 {"detail":[...]} —— 否则按封套编码的客户端解析不了(审查确认项)。"""
+    errors = exc.errors()
+    first = errors[0] if errors else {}
+    loc = [str(x) for x in first.get("loc", []) if x != "body"]
+    param = ".".join(loc) or None
+    return JSONResponse(
+        status_code=400,
+        content={"error": {
+            "message": f"Invalid request: {param or 'body'}: {first.get('msg', 'validation error')}",
+            "type": "invalid_request_error",
+            "param": param,
+            "code": "invalid_parameter",
+        }},
+    )
 
 
 @app.get("/healthz")

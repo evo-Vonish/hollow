@@ -21,6 +21,9 @@ def _env_float(name: str, default: float) -> float:
 
 SEARXNG_URL: str = _env_str("SEARXNG_URL", "http://127.0.0.1:8888")
 
+# OpenAI 兼容层(/v1/*)的 Bearer 鉴权;空 = 不校验(本机开发)。/v0 不受影响。
+API_KEY: str = _env_str("HOLLOW_API_KEY", "")
+
 # SearXNG 搜索调用超时(秒)。settings.yml max_request_timeout=15,留余量。
 SEARCH_TIMEOUT: float = _env_float("SEARCH_TIMEOUT", 20.0)
 

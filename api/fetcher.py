@@ -7,7 +7,6 @@
 - asyncio.wait_for 只是兜底(cancel 不了里面的线程),真正的超时靠 curl 自身
 """
 import asyncio
-import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -104,23 +103,3 @@ async def fetch_one(
                                error=f"hard timeout after {timeout_s + 5}s (outer wait_for)")
 
 
-async def fetch_all(
-    urls: list[str], *, concurrency: int, timeout_s: float, impersonate: str | None
-) -> tuple[list[FetchResult], int]:
-    """并行抓取全部 URL。返回 (结果列表, took_ms)。列表长度恒等于 len(urls)。"""
-    semaphore = asyncio.Semaphore(concurrency)
-    t0 = time.perf_counter()
-    gathered = await asyncio.gather(
-        *(fetch_one(u, semaphore=semaphore, timeout_s=timeout_s, impersonate=impersonate)
-          for u in urls),
-        return_exceptions=True,
-    )
-    took_ms = int((time.perf_counter() - t0) * 1000)
-    results: list[FetchResult] = []
-    for url, r in zip(urls, gathered):
-        if isinstance(r, BaseException):  # 理论上到不了:留占位兜底,禁止静默丢弃
-            results.append(FetchResult(url, "failed", fetched_at=_now_iso(),
-                                       error=f"unexpected {type(r).__name__}: {r}"))
-        else:
-            results.append(r)
-    return results, took_ms

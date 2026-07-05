@@ -50,7 +50,7 @@ tools/gen_engine_registry.py  注册表生成器(改分类后重跑,未分类会
 tools/run_local.ps1 / .sh     一键双起 SearXNG(8888) + 网关(8080)
 requirements.txt   网关依赖(.venv-api);SearXNG 依赖另在 .venv-searx
 docs/research/     两大基建源码研读笔记(21 篇)+ 环境验证(2026-07-06 本地)
-docs/design/       设计文档(注册表/裁剪/第一个API)
+docs/design/       设计文档(注册表/裁剪/第一个API/v1 API 面)
 docs/memory/       会话记忆
 ```
 
@@ -60,7 +60,9 @@ docs/memory/       会话记忆
 # Windows 一键(前置:两个 venv 已建,见下)
 tools\run_local.ps1     # SearXNG :8888 + 网关 :8080
 # 冒烟: Invoke-RestMethod http://127.0.0.1:8080/healthz
-# 请求: POST /v0/research {"q":"..."} → Evidence Pack(见 docs/design/03 §4)
+# 正式 API 面: POST /v1/research {"query":"...","scene":"zh","stream":true}
+#   OpenAI 风格封套/错误/SSE 语义事件,GET /v1/engines /v1/scenes;docs/design/04
+#   (HOLLOW_API_KEY 可选鉴权;/v0/research 为内部面,契约见 docs/design/03 §4)
 ```
 
 ```bash

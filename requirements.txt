@@ -4,5 +4,6 @@ fastapi
 uvicorn
 httpx
 pydantic
+pyyaml
 scrapling[fetchers]==0.4.10
 trafilatura
