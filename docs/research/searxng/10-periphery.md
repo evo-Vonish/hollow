@@ -63,14 +63,19 @@
 
 ### JSON 返回结构里外围功能落在哪
 
-`webapp.py:755-768`(response_index 的 kwargs,`format=json` 走同一份数据):
+注意:`format=json` **不走** HTML 的 `render('results.html', ...)`(那份 kwargs 在 `webapp.py:755-768`)。JSON 分支在 `webapp.py:672-675` 就提前 return 了——调 `webutils.get_json_response(search_query, result_container)` 单独序列化。真正的 JSON dict 在 `webutils.py:162-174`:
 ```python
-results = results,
-answers = result_container.answers,       # answerer + 部分插件的 Answer 落这里
-infoboxes = result_container.infoboxes,
-unresponsive_engines = webutils.get_translated_errors(result_container.unresponsive_engines),
+data = {
+    'query': sq.query,
+    'results': [_.as_dict() for _ in rc.get_ordered_results()],
+    'answers': [_.as_dict() for _ in rc.answers],          # answerer + 部分插件的 Answer 落这里
+    'corrections': list(rc.corrections),
+    'infoboxes': rc.infoboxes,
+    'suggestions': list(rc.suggestions),
+    'unresponsive_engines': get_translated_errors(rc.unresponsive_engines),
+}
 ```
-所以 answerer/calculator/unit_converter 产出的 `Answer` 会进 `answers`;engine 失败进 `unresponsive_engines`(那块归 results.py 研究员,这里只提一句:它是我们 `meta.engines_failed` 的上游)。
+所以 answerer/calculator/unit_converter 产出的 `Answer` 会进 `answers`;engine 失败进 `unresponsive_engines`(`get_translated_errors` 定义在 `webutils.py:70`;那块归 results.py 研究员,这里只提一句:它是我们 `meta.engines_failed` 的上游)。
 
 ---
 
@@ -130,7 +135,7 @@ answerer 无 settings 开关(`__init__.py:48` 强制 `load_builtins()`),要禁�
 
 - 默认**关**:`settings.yml:51` `favicon_resolver: ""`。
 - `favicon_url(authority)`(`favicons/proxy.py:195-237`)是**纯 Jinja 模板函数**(`webapp.py:435` 注入到模板 kwargs),`resolver` 为空或非法时直接 `return ""`(`proxy.py:218-221`)。
-- 它生成的是 `data:` URL 或 `/favicon_proxy?…` 路由(`proxy.py:230-237`),**只在 HTML 主题里渲染**;`/search?format=json` 的结果 dict 里**不含 favicon 字段**(JSON kwargs 见 `webapp.py:755-768`,无 favicon)。
+- 它生成的是 `data:` URL 或 `/favicon_proxy?…` 路由(`proxy.py:230-237`),**只在 HTML 主题里渲染**;`/search?format=json` 的结果 dict 里**不含 favicon 字段**(JSON dict 见 `webutils.get_json_response`,`webutils.py:162-174`,无 favicon;逐条结果的 `as_dict()` 也不含 favicon)。
 - 缓存底座在 `favicons/cache.py`(`FaviconCacheConfig`),命中时把图标缓存成 data URL(`proxy.py:97-108`)。
 
 **结论**:favicons 对我们**天生不触发**(JSON 路径不调模板函数),默认还关着。**无需额外处理**;哪怕别人把 `favicon_resolver` 打开,也只影响 HTML 页面、不影响我们消费的 JSON。唯一副作用是若开启且走 `/favicon_proxy` 端点会产生对外抓图请求——我们不代理该端点即可。
@@ -174,7 +179,7 @@ answerer 无 settings 开关(`__init__.py:48` 强制 `load_builtins()`),要禁�
 
 2. **answerer/keyword 插件会短路引擎搜索**:查询以 `random/min/max/avg/sum/prod/range` 开头且产出应答时,`/v0/search` 只回 `answers`、`results` 为空、无引擎调用。行动:网关在组装 `meta.engines_failed` 时,区分"引擎被短路(未调用)"与"引擎调用失败";前者不应算失败。可通过"是否有 `answers` 且 `results` 空且 `unresponsive_engines` 空"来识别。
 
-3. **`answers`/`infoboxes` 字段要不要透传**:JSON 返回里 answerer/calculator/unit_converter/time_zone/hash 的结果落在 `answers`(`webapp.py:761`),带 `engine="answerer: <kw>"` 或 `plugin: <id>` 前缀。P1 若要"每条结果标注 engine 来源",注意这些**本地应答的 engine 名不是真实搜索引擎**,分类时要单独处理。
+3. **`answers`/`infoboxes` 字段要不要透传**:JSON 返回里 answerer/calculator/unit_converter/time_zone/hash 的结果落在 `answers`(`webutils.py:167`),带 `engine="answerer: <kw>"`(`answerers/_core.py:161`)或 `engine="plugin: <id>"`(`plugins/_core.py:306`)前缀。P1 若要"每条结果标注 engine 来源",注意这些**本地应答的 engine 名不是真实搜索引擎**,分类时要单独处理。
 
 4. **autocomplete / favicons 无需在 P1 处理**:默认关且不进 JSON 路径。只需保证网关不对外暴露 `/autocompleter`、`/favicon_proxy`,并在 SearXNG `settings.yml` 保持 `autocomplete: ""`、`favicon_resolver: ""`。
 

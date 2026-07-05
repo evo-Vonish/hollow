@@ -111,7 +111,7 @@ hash(
 - 判等维度 = **template + parsed_url(去掉 scheme)+ img_src**。
 - **scheme 不参与 hash** → `http://x/a` 与 `https://x/a` 视为同一条(合并时会优先保留 https,见下)。
 - **query/fragment 参与 hash** → `?a=1` 与 `?a=2`、`#x` 与 `#y` 视为不同结果。**不做 UTM/追踪参数剥离,不做尾斜杠归一**。所以「同一篇文章带不同 query 参数」不会被 SearXNG 合并。
-- `netloc` 原样(**不剥 `www.`**;`_base.py:73` 里对 infobox 的 www 剥除是被注释掉的)。
+- `netloc` 原样(**不剥 `www.`**;`_base.py:74`/`:83` 里对 infobox url/id 的 www 剥除是被注释掉的)。
 - 图片结果特殊:`LegacyResult` 若 `template == "images.html"`,hash = `template|url|img_src`(`_base.py:542`),即图片按完整 url + img_src 去重。
 - `parsed_url` 为空会**抛 ValueError**(`_base.py:426` / `:553`)——没有 url 的主结果不允许进入合并。
 
@@ -124,7 +124,7 @@ hash(
 **合并动作** `merge_two_main_results(origin, other)`(`results.py:332`):
 - 正文取更长的(`len(other.content) > len(origin.content)`,`results.py:335`);
 - 标题取更长的(`results.py:340`);
-- `origin.defaults_from(other)`(`results.py:345`):**origin 里缺失(UNSET / "" / None)的字段用 other 补齐**(`_base.py:342` / LegacyResult `:579`);
+- `origin.defaults_from(other)`(`results.py:345`):**只有 origin 里「键完全不存在(UNSET)」的字段才用 other 的非空值补齐**(`_base.py:342` / LegacyResult `:579`);注意 docstring 虽声称 `""` / `None` 也算「未设置」,但代码实际只判 `self_val is UNSET`(`_base.py:350` / `:584`)——LegacyResult 在 `__init__` 预置的那批默认字段(即使值为 `""`)不会被 other 覆盖,真正能被补的只有 origin 完全没有的引擎自定义键;
 - `origin.engines.add(other.engine)`(`results.py:350`)——**这就是多引擎命中的来源集合累积处**;
 - **scheme 升级**:若 origin 是非 s 结尾 scheme 而 other 是 s 结尾(https/ftps),把 origin 的 scheme 换成 other 的并回写 url(`results.py:352-356`)。
 

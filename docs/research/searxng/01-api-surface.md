@@ -19,7 +19,7 @@ SearXNG 是一个 Flask 应用(`searx/webapp.py`)。对我们有用的只有一�
 
 ```
 HTTP 请求
-  └─ pre_request()            webapp.py:457   合并 GET+POST 参数、加载 preferences/cookie
+  └─ pre_request()            webapp.py:458   合并 GET+POST 参数、加载 preferences/cookie
       └─ search()             webapp.py:616   选择 output_format、校验 formats
           └─ get_search_query_from_webapp()  webadapter.py:221  把 form 映射成 SearchQuery
               └─ RawTextQuery                query.py:250       解析 q 里的 bang/修饰符
@@ -99,7 +99,7 @@ if output_format not in settings['search']['formats']:   # 实例配置的白名
 | `engine_data-<engine>-<key>` | `webadapter.py:212-218` (`parse_engine_data`) | 引擎翻页/游标状态透传,键名形如 `engine_data-google-xxx`。一般由前一次结果回填,我们初期用不到。 |
 | `timeout_limit` | `webadapter.py:104-114` | 每次搜索的超时秒数(float)。也可用 `q` 里的 `<n` 修饰符设置(见 Q4)。 |
 | `preferences` | `webapp.py:487-488` | 编码后的偏好 blob;存在时**优先于**逐字段 `parse_dict`。我们不用。 |
-| `redirect_to_first_result` | 经 `q` 的 `!!`(无参)触发,`query.py:240-247` | 若为真且有结果,`/search` 直接 302 到第一条结果 URL(`webapp.py:695-696`)。 |
+| `redirect_to_first_result` | 经 `q` 的 `!!`(无参)触发,`query.py:240-247` | 若为真且有结果,`/search` 302 到第一条结果 URL(`webapp.py:695-696`)。**注意(复核补正):此判断位于模板渲染段(section 4),在 `format=json` 提前 return(`webapp.py:672-675`)之后**——所以 `!!`(手气不错)**不会**劫持 JSON 请求;真正会劫持 JSON 的是**外部 bang** `!!g`,它经 `redirect_url` 在 `webapp.py:663` 提前 302(早于 json 分支)。 |
 | Cookie | `webapp.py:474` | preferences 也会从 cookie 解析。无状态调用时不受影响。 |
 
 **校验失败的统一行为**:`get_search_query_from_webapp` 抛 `SearxParameterException` 时,`search()` 捕获并返回 `index_error(output_format, e.message)` + **HTTP 400**(`webapp.py:655-657`);对 `format=json` 即 `{"error": "<message>"}`(`webapp.py:551-553`)。其他异常 → HTTP 500(`webapp.py:658-660`)。
@@ -279,7 +279,7 @@ if max_page and max_page < search_query.pageno:
 ## 五、待实测确认的问题
 
 1. **`parsed_url` 在 JSON 里的实际形态**:源码 `JSONEncoder` 未特判 `ParseResult`,靠其 namedtuple 特性被序列化成 6 元素数组——需实测确认 `json.dumps` 对 `ParseResult` 是否真如预期输出数组(而非报错)。(`webutils.py:149-159`)
-2. **`unresponsive_engines` 错误串的确切取值集合**:`exception_classname_to_text`(`webutils.py:52-67`)只映射了有限异常类,未映射的走 `[None]` 兜底文案。需实测枚举真实引擎失败时(超时/429/CAPTCHA)输出的具体串,才能在网关做可靠的 `error_type` 反向归类。
+2. **`unresponsive_engines` 错误串的确切取值集合**:`exception_classname_to_text`(`webutils.py:41-67`,复核修正:原写 52-67 有误,该 dict 实际起于第 41 行)只映射了有限异常类,未映射的走 `[None]` 兜底文案。需实测枚举真实引擎失败时(超时/429/CAPTCHA)输出的具体串,才能在网关做可靠的 `error_type` 反向归类。
 3. **实例 UI 语言对错误串的影响**:`gettext` 翻译依赖请求 locale;需确认无 cookie 的纯 API 调用下,SearXNG 用的是哪个默认 locale(`ui.default_locale`?浏览器头?),以固定 `engines_failed` 文案。
 4. **`display_error_messages` 默认值**:需确认引擎默认是否 `True`(即默认会上报失败),以及我们部署的引擎里有哪些关闭了它——决定「无声失败」范围有多大。(`results.py:254`,`engines/__init__.py`)
 5. **`count`/多页拼装的上游压力**:若网关用循环 `pageno` 凑 `count`,需实测每页典型返回条数与各引擎 `max_page`,评估请求放大倍数。

@@ -72,7 +72,7 @@
 
 池是每个 httpx client 独立的,而一个 Network 可能有多个 client(见 2.3),所以实际连接上限会随源 IP/代理组合数放大。
 
-**HTTP/2:** `outgoing.enable_http2`(默认 True,`settings_defaults.py:252`)透传给每个 transport(`client.py:145-157`、`149 http2=http2`)。`image_proxy` 网络强制关掉(`network.py:419`)。
+**HTTP/2:** `outgoing.enable_http2`(默认 True,`settings_defaults.py:252`)透传给每个 transport(`client.py:145-157`、`152 http2=http2`)。`image_proxy` 网络强制关掉(`network.py:419`)。
 
 **明文 HTTP 默认禁用(易踩坑):** `Network.__init__` 的 `enable_http` 默认 True,但 `initialize()` 的 `default_params['enable_http']=False`(`network.py:352`),所以**所有从 settings 建出来的引擎网络都禁用明文 HTTP**。实现方式:`new_client` 里给 `http://` 挂一个 `AsyncHTTPTransportNoHttp`(`client.py:192-193`),它对任何 http 请求抛 `httpx.UnsupportedProtocol('HTTP protocol is disabled')`(`client.py:79-80`)。这个空 transport 的构造函数被故意置空,就是为了不创建那 500KB 的 SSLContext(`client.py:61-77`)。
 
@@ -87,7 +87,7 @@
 | `pool_connections` | 100 | `httpx.Limits.max_connections`(`client.py:175`)。 |
 | `pool_maxsize` | 10(settings.yml 覆盖为 20) | `httpx.Limits.max_keepalive_connections`(`client.py:176`)。 |
 | `keepalive_expiry` | 5.0 | 保活连接空闲存活秒数(`client.py:177`)。 |
-| `enable_http2` | True | 是否启用 HTTP/2(`client.py:149`)。 |
+| `enable_http2` | True | 是否启用 HTTP/2(`client.py:152`)。 |
 | `verify` | True | TLS 校验;可为 bool 或证书路径 str(`settings_defaults.py:253`)。透传到 `get_sslcontexts`(`client.py:51-58`)。引擎可用 params.verify 覆盖(`online.py:175-177`)。 |
 | `max_redirects` | 30 | httpx client 的 `max_redirects`(`client.py:201-206`),是 Network 缓存 client 的 key 之一。 |
 | `retries` | 0 | **应用层**重试次数,进 `self.retries`,由 `call_client` 使用(见问题 3)。注意 **不是** httpx transport 层的 retries —— 后者被硬编码为 0(`network.py:207`)。 |

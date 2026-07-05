@@ -178,7 +178,7 @@ SearxException (base, :10)
 
 **JSON API 里怎么透出**(webutils.py:162-174 `get_json_response`):`'unresponsive_engines': get_translated_errors(rc.unresponsive_engines)`。而 `get_translated_errors`(webutils.py:70-82)把 `error_type`(异常类名)**翻译成人类文案**,并在 `suspended=True` 时前缀 `'Suspended: '`,最终返回 `sorted([(engine_name, 翻译后的消息), ...])`。
 
-⚠️ **对 P1 的坑**:SearXNG 原生 JSON 的 `unresponsive_engines` 是 `[引擎名, 已翻译且已合并的文案]`,**丢掉了原始异常类名、丢掉了 `suspended` 布尔、也不带停用时长**。若我们直接透传上游 JSON,拿不到结构化的失败原因。翻译表见 webutils.py:55-67(如 `SearxEngineTooManyRequestsException` → "too many requests"、`SearxEngineCaptchaException` → 验证码文案等),不在表里的走默认 "unexpected crash"。
+⚠️ **对 P1 的坑**:SearXNG 原生 JSON 的 `unresponsive_engines` 是 `[引擎名, 已翻译且已合并的文案]`,**丢掉了原始异常类名、丢掉了 `suspended` 布尔、也不带停用时长**。若我们直接透传上游 JSON,拿不到结构化的失败原因。翻译表见 webutils.py:41-67(如 `SearxEngineTooManyRequestsException` → "too many requests"、`SearxEngineCaptchaException` → 验证码文案等),不在表里的走默认 "unexpected crash"。
 
 ---
 
@@ -188,7 +188,7 @@ P1 要「返回每条结果的 engine 来源 + 在 `meta.engines_failed` 显式�
 
 1. **失败引擎的唯一权威来源就是上游 JSON 的 `unresponsive_engines`**。我们必须把它映射进 `meta.engines_failed`,不能丢。但要清楚它已被翻译+合并,原始异常类名/suspended 位在 JSON 层已丢失。
 2. **若需要结构化失败原因(exception 类名 / 是否 suspended / 停用时长),原生 `/search?format=json` 给不了**。可选方案:
-   - (推荐,零改源码)接受「翻译后文案」作为 `reason`,并对文案做已知映射(参照 webutils.py:55-67 那张表反推),`suspended` 位可从文案是否以本地化的 "Suspended: " 前缀判断——但依赖 locale,脆弱;建议我们请求上游时固定 `locale`/语言以稳定前缀,或干脆只透传文案不解析语义。
+   - (推荐,零改源码)接受「翻译后文案」作为 `reason`,并对文案做已知映射(参照 webutils.py:41-67 那张表反推),`suspended` 位可从文案是否以本地化的 "Suspended: " 前缀判断——但依赖 locale,脆弱;建议我们请求上游时固定 `locale`/语言以稳定前缀,或干脆只透传文案不解析语义。
    - (需要改源码,违背 P1「不改一行」原则,不建议)在上游加结构化输出。
 3. **区分「失败」与「被停用跳过」**:上游把两者都塞进 `unresponsive_engines`,`suspended=True` 者本轮压根没发请求。P1 的 `engines_failed` 语义上应把这两类都算「未产出结果」,但如果要更精细(如「暂时不可用 vs 本次报错」),需要在文案前缀层面区分,见上一条的脆弱性警告。
 4. **`meta` 里可选加健康度**:若我们想给出引擎健康度,可**旁路**调用上游 `/stats/errors`(JSON,免鉴权、按 token 过滤)拿错误占比;但它是进程累计、粒度 5%、不含实时 suspended,只能当「趋势参考」,不宜作为单次请求的失败判定依据——**单次失败仍以 `unresponsive_engines` 为准**。

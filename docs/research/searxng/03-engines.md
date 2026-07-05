@@ -137,7 +137,7 @@ translated_errors.append((unresponsive_engine.engine, error_msg))
 ### 问题 2:引擎如何注册与加载(settings.yml ↔ 代码)
 
 - **`name`**:SearXNG 内部/结果页显示用的唯一名。不能含下划线(`__init__.py:117`),必须小写(否则转小写并 warn,`:121`)。重名 → `sys.exit`。
-- **`engine`**:指向 `searx/engines/<engine>.py` 的文件名(去 `.py`)。**多个 name 可以共用一个 engine 模块**。典型:brave 一个 `brave.py` 被配成 5 个引擎(`brave`/`brave.images`/`brave.videos`/`brave.news`/`brave.goggles`),靠 YAML 里不同的 `brave_category` 区分(`settings.yml:3213-3241`;模块侧 `brave.py:154`)。DDG 则相反,`duckduckgo`、`duckduckgo_web`、`duckduckgo_extra` 是不同模块(`settings.yml:863-885`)。
+- **`engine`**:指向 `searx/engines/<engine>.py` 的文件名(去 `.py`)。**多个 name 可以共用一个 engine 模块**。典型:模块 `brave.py` 的 `brave_category`(`brave.py:154`)支持 5 类(search/images/videos/news/goggles),但默认 `settings.yml` 只配了 **4 个引擎**(`brave`/`brave.images`/`brave.videos`/`brave.news`,`settings.yml:3213-3241`);第 5 个 `brave.goggles` 的模板存在但**整段被注释掉**(`settings.yml:3243-3251`),默认不加载。各引擎靠 YAML 里不同的 `brave_category` 区分。DDG 则相反,`duckduckgo`、`duckduckgo_web`、`duckduckgo_extra` 是不同模块(`settings.yml:863-885`)。
 - **`shortcut`**:`!bang` 前缀,如 `ddg`、`br`、`arx`(`settings.yml:865`/`3215`/`478`)。全局唯一,重复 → `sys.exit`。
 - 我们 P1 四个引擎的 YAML 现状:
   - `arxiv`(`settings.yml:476-478`):无 `disabled`,**默认启用**。
@@ -198,7 +198,7 @@ translated_errors.append((unresponsive_engine.engine, error_msg))
   2. **全局配置**:`settings.yml` 里给不想要的引擎设 `disabled: true`(仍加载、可临时开)或 `inactive: true`(不加载)。我们 P1 用 Docker 部署,可以自定义挂载 `settings.yml` 把默认引擎列表裁到只留 duckduckgo/brave/wikipedia/arxiv 等,其余 `disabled: true`。
   ⚠️ 引擎"是否参与某次搜索"最终由**搜索层按 category/engines 参数**决定。**已确认**(`webadapter.py:181-189`):带 `engines=` 显式点名时,引擎直接从 `engines[name]` 取,**不经过 `disabled_engines` 过滤** —— 即 `disabled: true` 的引擎用 `engines=` 点名仍会被调用。只有走 category 展开的引擎(`get_engineref_from_category_list` `:158-169`)才会被 `disabled_engines` 过滤。
   ⚠️ 另一个坑(`webadapter.py:183`):用 `engines=` 点名时,传给引擎的 `engine_category` = 该引擎 `categories[0]`(**第一个分类**)。brave 是 `general`,arxiv 是 `science`。若引擎 `response`/`request` 依赖 category(如 brave 靠 `brave_category` 而非这个,不受影响;但某些引擎会看 `params["category"]`),要注意点名调用时的分类是列表首项。
-- **权重**:`weight: float`(默认 1.0,`ENGINE_DEFAULT_ARGS:54`)。在结果排名里 `result_score` 用它乘权(`results.py:24-25`:`weight *= float(engines[result_engine].weight)`)。去重合并时也用 weight 决定"以谁为主"(`merge_two_main_results` 前面的 `result_score` 比较,`results.py:275-281`)。⇒ 想让某引擎结果更靠前,YAML 里给它设 `weight: 2.0` 之类。
+- **权重**:`weight: float`(默认 1.0,`ENGINE_DEFAULT_ARGS:54`)。在结果排名里 `calculate_score`(`results.py:17`,老代码里叫 result_score,本快照已改名)用它乘权(`results.py:24-25`:`weight *= float(engines[result_engine].weight)`)。**infobox** 去重合并时也用 weight 决定"以谁为主"(`merge_two_infoboxes`,`results.py:275-279` 比较 weight1/weight2 挑 `origin.engine`);**主结果** `merge_two_main_results`(`results.py:332-357`)本身不比 weight,而是靠 `calculate_score` 的分数排序决定顺序。⇒ 想让某引擎结果更靠前,YAML 里给它设 `weight: 2.0` 之类。
 - **分类**:`categories:` 字段(YAML 可写字符串或 list,`update_engine_attributes:219-222` 会把逗号串 split 成 list)。决定引擎出现在哪个 tab、被哪个 `categories=` 请求命中。无 tab 分类的引擎会被自动加 `other`(`__init__.py:162-163`)。同一模块不同引擎可配不同分类(brave.images→`[images,web]` 等)。
 
 ---

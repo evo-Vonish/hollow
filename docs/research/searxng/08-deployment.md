@@ -24,7 +24,7 @@
 ### 运行时拓扑(官方 compose)
 
 ```
-        docker compose 默认网络(名字 "searxng",compose 顶层 name: searxng)
+        docker compose 默认网络(名字 searxng_default,compose 顶层 name: searxng)
    ┌────────────────────────────────────────────────────────────┐
    │  core (searxng-core)                valkey (searxng-valkey)  │
    │  image searxng/searxng:${VER}       image valkey/valkey:9-a  │

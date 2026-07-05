@@ -145,7 +145,7 @@ class UnresponsiveEngine(t.NamedTuple):   # results.py:47
 |---|---|---|---|
 | 引擎熔断中,直接跳过 | `extend_container_if_suspended` `abstract.py:237` | `suspend_reason`(上次的错误串) | `True` |
 | 主线程判定超时 | `search_multiple_requests` `__init__.py:157` | `'timeout'` | `False` |
-| 引擎线程内抛异常 | `handle_exception` → `results.py:189` | 异常类全名(如 `httpx.ConnectTimeout`)或字符串 | `False` |
+| 引擎线程内抛异常 | `handle_exception` → `abstract.py:189` | 异常类全名(如 `httpx.ConnectTimeout`)或字符串 | `False` |
 | 迟到线程发现自己已被判超时 | `extend_container` `abstract.py:228` | `'timeout'` | `False` |
 
 **熔断(suspend)机制**(`SuspendedStatus`,`abstract.py:78`):
