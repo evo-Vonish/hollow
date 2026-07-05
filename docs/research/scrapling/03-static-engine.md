@@ -70,7 +70,7 @@ Fetcher.get(url, **kw)                         # requests.py:32  classmethod
 - **HTTP 4xx/5xx 状态码不在 catch 范围,不触发重试**,直接作为正常 `Response` 返回(见 §4)。
 - 每次重试会重新取代理(rotator 场景 `static.py:249-252`)。异步版同构(`static.py:463-491`,用 `asyncio.sleep`)。
 
-请求级覆盖:GET/POST 等的 `**kwargs` 可逐请求覆盖上述任意默认(`_get_param` 逐键判断 `static.py:98-100`)。额外透传参数:`params`、`cookies`、`auth`、`data`、`json`(`GetRequestParams`/`DataRequestParams`,`_browsers/_types.py:49-58`)。注意 `stealthy_headers` 在方法层被 `pop` 出来当作 `stealth` 传入(`static.py:307-308`)。
+请求级覆盖:GET/POST 等的 `**kwargs` 可逐请求覆盖上述任意默认(`_get_param` 逐键判断 `static.py:98-100`)。额外透传参数:`params`、`cookies`、`auth`、`data`、`json`(`GetRequestParams`/`DataRequestParams`,`_browsers/_types.py:50-60`)。注意 `stealthy_headers` 在方法层被 `pop` 出来当作 `stealth` 传入(`static.py:307-308`)。
 
 ### 2.3 会话 / 连接复用机制(§3 展开见下)
 
@@ -101,7 +101,7 @@ Fetcher.get(url, **kw)                         # requests.py:32  classmethod
 
 依据:
 - `_make_request` 只捕获 `CurlError`(传输层),**从不调用 `raise_for_status`**;拿到 curl 响应后直接 `ResponseFactory.from_http_request(response, ...)`(`static.py:256-258`)。
-- `from_http_request`(`convertor.py:301-325`)无条件把 `response.status_code` 写进 `Response.status`、`response.content` 写进 `Response.content`,**不判断状态码**。curl_cffi 默认也不会因 4xx/5xx 抛错。
+- `from_http_request`(`convertor.py:301-325`)无条件把 curl 响应的 `response.status_code` 写进 `Response.status`、`response.content` 作为构造参数 `content` 传入(`convertor.py:313`),**不判断状态码**。⚠ 注意:`Response`/`Selector` **没有 `.content` 属性**,该 body 存为 `_raw_body`、经 `resp.body` 取用(bytes)。curl_cffi 默认也不会因 4xx/5xx 抛错。
 - 因此 403(Forbidden)、429(Too Many Requests)、503(Cloudflare "Just a moment..." 挑战)统统作为 `Response(status=403/429/503, content=<挑战页HTML>)` 正常返回。
 
 **什么时候会抛异常(而非返回 Response)** —— 仅传输层失败,类型是 `curl_cffi.curl.CurlError`(`static.py:6` import,`:260` catch):
@@ -110,8 +110,8 @@ Fetcher.get(url, **kw)                         # requests.py:32  classmethod
 
 **判定"需要升级到 dynamic / stealthy"的信号取法(在 `Response` 对象上):**
 - `response.status`(int):`403`/`429`/`503` 是最强信号。
-- `response.headers`(dict,`custom.py:65`):Cloudflare 常见 `server: cloudflare`、`cf-mitigated: challenge`、`cf-ray: ...`。可用于把"普通 403"与"Cloudflare 挑战"区分开(→ 前者可能 DynamicFetcher 够,后者直上 StealthyFetcher)。
-- `response.body`(bytes,`custom.py:84`)/ `response.text`:挑战页 body 里通常含 `Just a moment...`、`cf-browser-verification`、`__cf_chl`、`challenge-platform` 等标记。
+- `response.headers`(dict,`custom.py:64`):Cloudflare 常见 `server: cloudflare`、`cf-mitigated: challenge`、`cf-ray: ...`。可用于把"普通 403"与"Cloudflare 挑战"区分开(→ 前者可能 DynamicFetcher 够,后者直上 StealthyFetcher)。
+- `response.body`(bytes,`custom.py:84`,解码后搜索):挑战页 body 里通常含 `Just a moment...`、`cf-browser-verification`、`__cf_chl`、`challenge-platform` 等标记。⚠ 别用 `response.text` 找这些标记——`text`(`parser.py:269`)只返回根元素 `<html>` 的直接文本(几乎恒为空),要整页可见文本得用 `get_all_text()`。
 - 注意:Cloudflare 挑战页 HTTP 状态可能是 **403 或 503**,不一定是 429。
 
 ---
@@ -124,11 +124,11 @@ Fetcher.get(url, **kw)                         # requests.py:32  classmethod
 |---|---|---|
 | HTTP 状态 | `response.status` | `custom.py:61` |
 | 原始 HTML 字节 | `response.body`(bytes) / `len(response.body)` | `custom.py:83-86`(Response 覆写,返回 bytes) |
-| 原始 HTML 长度 | `len(response.content)` 等价 | `content` 在 `__init__` 编码为 bytes(`custom.py:57-58`) |
+| 原始 HTML 长度 | `len(response.body)`(**无 `response.content` 属性,别用**) | 构造参数 `content` 在 `__init__` 编码为 bytes 存入 `_raw_body`(`custom.py:57-58`),经 `body` 取用 |
 | 提取正文纯文本 | `response.get_all_text(strip=True, ignore_tags=("script","style"))` → `TextHandler` | `parser.py:279`(默认已忽略 script/style) |
 | 元素文本 | `response.text` | `parser.py:269` |
 | 内部 HTML | `response.html_content` | `parser.py:345` |
-| 响应头(判 content-type) | `response.headers.get("content-type")` | `custom.py:65` |
+| 响应头(判 content-type) | `response.headers.get("content-type")` | `custom.py:64` |
 | 编码 | `response.encoding` | `from_http_request` 用 `response.encoding or "utf-8"`(`convertor.py:316`) |
 
 **SPA 判定建议**(纯静态引擎侧,交给下游 trafilatura 之前的粗筛):

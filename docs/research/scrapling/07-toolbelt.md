@@ -13,7 +13,7 @@ Toolbelt 是 Scrapling 引擎层的“工具带”,不直接对外,是被三个 
 | 文件 | 职责 | 谁在用 |
 | --- | --- | --- |
 | `fingerprints.py` | 用 browserforge 生成“像真浏览器”的 HTTP 头 / User-Agent | 静态引擎 `static.py`、浏览器引擎 `_config_tools.py` |
-| `proxy_rotation.py` | 线程安全的代理轮换器 `ProxyRotator` + 代理错误识别 | **仅浏览器引擎**(`_controllers.py` / `_stealth.py`) |
+| `proxy_rotation.py` | 线程安全的代理轮换器 `ProxyRotator` + 代理错误识别 | **三个引擎都消费**:浏览器(`_controllers.py` / `_stealth.py`)与静态(`static.py`)均支持 |
 | `ad_domains.py` | 内置 ~3500 条广告/追踪域名 frozenset | `block_ads=True` 时被 `_validators.py` 合入拦截清单(**仅浏览器**) |
 | `navigation.py` | 请求拦截 handler(按资源类型/域名 abort)+ 代理字符串校验 | 浏览器引擎 `_base.py`;`construct_proxy_dict` 被所有需要代理的地方用 |
 | `convertor.py` | `ResponseFactory`:把 Playwright / curl_cffi 的原始响应统一成 `Response` | 三个引擎全部 |
@@ -49,9 +49,9 @@ Toolbelt 是 Scrapling 引擎层的“工具带”,不直接对外,是被三个 
 - `is_proxy_error(error: Exception) -> bool`(`proxy_rotation.py:27`):把异常字符串小写后匹配 `_PROXY_ERROR_INDICATORS`(`proxy_rotation.py:7-15`,含 `net::err_proxy`、`connection refused`、`connection timed out`、`could not resolve proxy` 等)。浏览器控制器用它决定“这次失败是不是代理问题,要不要换代理重试”(`_controllers.py:199`)。
 - **配置入口(将来给引擎挂代理时用):**
   - 单个静态代理:`proxy=` 参数,三个 Fetcher 都支持(如 `DynamicFetcher.fetch(..., proxy="http://...")`,`chrome.py:36`;静态引擎 `static.py` 也吃 `proxy`)。字符串会经 `construct_proxy_dict` 校验转成 Playwright 格式(`_validators.py:107`)。
-  - 代理轮换:`proxy_rotator=ProxyRotator([...])`,是 `PlaywrightSession` 的字段(`_validators.py:76`),因此**通过 `DynamicFetcher.fetch(..., proxy_rotator=...)` / `StealthyFetcher.fetch(...)` 的 `**kwargs` 就能传**(one-shot 签名是 `Unpack[PlaywrightSession]`,`chrome.py:9`)。
-  - **约束:`proxy` 与 `proxy_rotator` 互斥**,同时给会 `ValueError`(`_validators.py:102-105`)。
-  - **仅浏览器引擎消费 `proxy_rotator`**:`_controllers.py:136-137` / `_stealth.py:84-87` 在每次 fetch 时 `self._config.proxy_rotator.get_proxy()`,并为该请求新建带此代理的 context(`_base.py:482-494` `_build_context_with_proxy`)。**静态引擎不认 `proxy_rotator`,只认单个 `proxy` 字符串。**
+  - 代理轮换:`proxy_rotator=ProxyRotator([...])`,是浏览器 `PlaywrightSession` TypedDict 的字段(`_types.py:79`),经 msgspec 结构 `PlaywrightConfig` 校验(`_validators.py:76`);静态引擎的 `RequestsSession` TypedDict 里也有此字段(`_types.py:38`)。因此**通过 `DynamicFetcher.fetch(..., proxy_rotator=...)` / `StealthyFetcher.fetch(...)` 的 `**kwargs` 就能传**(one-shot 签名是 `Unpack[PlaywrightSession]`,`chrome.py:11`)。
+  - **约束:`proxy` 与 `proxy_rotator` 互斥**,同时给会 `ValueError`(浏览器 `_validators.py:102-106`;静态 `static.py:91-94`)。
+  - **三个引擎都消费 `proxy_rotator`**:浏览器在每次 fetch 时 `self._config.proxy_rotator.get_proxy()`(`_controllers.py:136-137`;`_stealth.py:219-220`、异步 `495-496`),并为该请求新建带此代理的 context(`_base.py:482-494` `_build_context_with_proxy`);**静态引擎同样支持**——`static.py:89` 读入 `proxy_rotator`,`static.py:249-250` 在每次请求 `self._proxy_rotator.get_proxy()`,并对代理错误换代理重试(`static.py:264`)。故静态档不是“只认单个 `proxy` 字符串”。
   - 用过的代理会写进 `Response.meta={"proxy": proxy}`(`_controllers.py:191`),方便回溯。
 - 文档差异:`docs/api-reference/proxy-rotation.md:13` 教从 `scrapling.fetchers import ProxyRotator`;源码里 `fetchers/__init__.py:2` 确实再导出了,`toolbelt/__init__.py:1` 也导出。两条 import 路径都可用,无冲突。
 
@@ -96,7 +96,7 @@ Toolbelt 是 Scrapling 引擎层的“工具带”,不直接对外,是被三个 
 只**生成**、不校验。用 browserforge 生成 browser-like 的 HTTP 请求头与 User-Agent(`generate_headers`,`fingerprints.py:37`)。三种模式:默认多浏览器多 OS 混合头(静态请求用)、`"chrome"`/`True` 为浏览器模式匹配当前 OS + chrome/chromium v149。版本号硬编码 149(`fingerprints.py:16-17`)。**不含** TLS/JA3 指纹、一致性校验或反检测校验——那些在 curl_cffi impersonate(静态)和 camoufox/patchright(浏览器)里。
 
 **Q2. proxy_rotation 的代理轮换能力与配置入口?**
-`ProxyRotator(proxies, strategy=cyclic_rotation)`(`proxy_rotation.py:39`),线程安全,默认顺序轮转、支持自定义策略函数(签名 `proxy_rotation.py:6`),接受 str 或 `{server,...}` dict。配置入口:one-shot fetch 的 `proxy_rotator=` kwarg(`_validators.py:76`,经 `Unpack[PlaywrightSession]` 传入),或单个 `proxy=` 静态代理;二者互斥(`_validators.py:102-105`)。**仅浏览器引擎消费 `proxy_rotator`**;静态引擎只吃单个 `proxy`。配套 `is_proxy_error`(`proxy_rotation.py:27`)让控制器识别代理故障并换代理重试。
+`ProxyRotator(proxies, strategy=cyclic_rotation)`(`proxy_rotation.py:39`),线程安全,默认顺序轮转、支持自定义策略函数(签名 `proxy_rotation.py:6`),接受 str 或 `{server,...}` dict。配置入口:one-shot fetch 的 `proxy_rotator=` kwarg(浏览器经 `Unpack[PlaywrightSession]` TypedDict 传入,字段 `_types.py:79`;静态经 `RequestsSession`,字段 `_types.py:38`),或单个 `proxy=` 静态代理;二者互斥(浏览器 `_validators.py:102-106`、静态 `static.py:91-94`)。**三个引擎都消费 `proxy_rotator`**——浏览器与静态引擎(`static.py:89,249-250`)均会 `get_proxy()` 轮换。配套 `is_proxy_error`(`proxy_rotation.py:27`)让控制器识别代理故障并换代理重试。
 
 **Q3. ad_domains 是干什么的、能否抓取阶段就拦广告、与 P3 关系?**
 是 3526 条(≈3500)广告/追踪域的 frozenset(`ad_domains.py:8`)。`block_ads=True` 时合入 `blocked_domains`(`_validators.py:135-141`),在 Playwright 路由层 `route.abort()` 拦掉命中请求(`navigation.py:57-61`),**能在浏览器抓取阶段就拦广告**(静态 Fetcher 不支持,`static.py:153` 忽略)。与 P3:`block_ads` 是网络层拦截(少加载广告资源、页面更快更干净),trafilatura 是内容层正文抽取,二者互补,正文抽取仍归 P3。
@@ -180,6 +180,6 @@ except Exception as e:
 1. `chromium_version=149 / chrome_version=149` 是 v0.4.10 硬编码(`fingerprints.py:16-17`)。升级 Scrapling 后是否漂移、是否与本机实际 Chromium 版本一致,需实测——不一致可能反成指纹破绽。
 2. `block_ads` 的 3526 条清单会不会误伤目标站自身的统计/CDN 子域(如站点用 `*.doubleclick.net` 嵌内容),导致正文缺块?需对我们实际目标站点抽样验证。后缀链匹配(`navigation.py:22`)意味着放主域即拦全部子域,误伤面可能偏大。
 3. `disable_resources=True` 砍掉 stylesheet/image 后,是否影响 trafilatura(P3)对“可见正文”的判定或图片提取需求?需与 P3 联调确认默认值。
-4. 静态 `Fetcher` 是否支持 `proxy_rotator`?源码显示只有浏览器引擎消费 `proxy_rotator`;静态引擎似乎只认单个 `proxy` 字符串。若 P2/后续要给静态档做代理轮换,需在网关层自己实现“取 proxy → 传 proxy=”的循环(不能依赖 Scrapling 的 `ProxyRotator` 自动接管静态引擎)。待实测静态档传 `proxy_rotator` 是被忽略还是报错。
+4. 静态 `Fetcher` **确实支持 `proxy_rotator`**(源码已确认:`static.py:89` 读入、`static.py:249-250` 每请求 `get_proxy()`、`static.py:91-94` 与 `proxy`/`proxies` 互斥、`static.py:264` 代理错误换代理重试)。即三个引擎都能直接吃 `ProxyRotator`,P2/后续做静态档代理轮换无需在网关层自造循环。待实测点仅剩:静态档轮换与浏览器档共享同一 `ProxyRotator` 实例时的并发/线程安全表现(`ProxyRotator` 自带 `Lock`,理论上 OK)。
 5. `is_proxy_error` 靠字符串匹配异常消息(`proxy_rotation.py:29`),对超时的分类可能不精确(`connection timed out` 会被判成代理错误)。我们区分 `timeout` vs `failed` 时不能只靠它,需结合自己的 `asyncio.wait_for` 超时信号。
 6. 浏览器档 `proxy_rotator` 每次 fetch 新建 context(`_base.py:482`),在“浏览器实例池上限 2-3 + 信号量”约束下的内存/句柄开销,需压测(与 06 并发笔记联动)。

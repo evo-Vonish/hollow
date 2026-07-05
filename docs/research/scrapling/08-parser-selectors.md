@@ -79,7 +79,7 @@ Selector(content=None, url="", encoding="utf-8", huge_tree=True,
 |---|---|---|---|
 | `.text` (property) | `parser.py:268-277` | `TextHandler` | **只取该元素的直接文本**(`self._root.text`),不含子孙。文本节点则返回其字符串。 |
 | `get_all_text(separator="\n", strip=False, ignore_tags=("script","style"), valid_values=True)` | `parser.py:279-329` | `TextHandler` | **递归**收集所有后代可见文本节点并拼接。默认忽略 `script`/`style` 及其内部;`valid_values=True` 跳过空白节点。 |
-| `.html_content` (property) | `parser.py:344-352` | `TextHandler` | 元素**内部 HTML**(lxml `tostring(method="html", with_tail=False)`,**重新序列化**,注释已在解析期被剔除)。 |
+| `.html_content` (property) | `parser.py:344-352` | `TextHandler` | 元素**外部(outer)HTML**——含元素自身开合标签(lxml `tostring(self._root, method="html", with_tail=False)` 序列化元素本身,**重新序列化**,注释已在解析期被剔除)。源码 docstring 写的"inner HTML"是笔误,实测返回的是 outer。 |
 | `.body` (property) | Selector: `parser.py:354-359` / Response 覆盖: `custom.py:83-86` | `str\|bytes`(Selector)/ `bytes`(Response) | **原始未处理**的输入体(`_raw_body`)。Response 上永远是原始 bytes。 |
 | `.prettify()` | `parser.py:361-374` | `TextHandler` | 美化后的内部 HTML。 |
 | `.get()` / `.getall()` | `parser.py:464-475` | `TextHandler`/`TextHandlers` | 序列化:元素→outer HTML(=`html_content`),文本节点→其值。别名 `extract_first`/`extract`。 |
@@ -119,7 +119,7 @@ Selector(content=None, url="", encoding="utf-8", huge_tree=True,
 - `.text` = **直接**文本(不递归);容器元素上常常是空串(docs `main_classes.md:106-109` 明确演示 `article.text == ''`)。
 - `get_all_text()` = **递归**全文,默认剔除 script/style,`strip=True` 去空白。**这是判定"页面有多少可读文本"的正确入口。**
 - `.clean()` 只是空白规整,不做抽取。
-- `.body` = 原始 HTML(给 trafilatura);`.html_content` = lxml 重序列化的 inner HTML(会丢注释、空白已合并,**不建议**当作"原样 HTML"喂下游)。
+- `.body` = 原始 HTML(给 trafilatura);`.html_content` = lxml 重序列化的 **outer HTML**(含元素自身标签、会丢注释、空白已合并,**不建议**当作"原样 HTML"喂下游)。
 
 ### Q3 · 自适应选择(auto-match / adaptive)是什么
 

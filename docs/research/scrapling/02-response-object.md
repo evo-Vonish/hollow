@@ -88,7 +88,7 @@ else:
 - **HTTP 状态码 → 属性**:`response.status`(int)。403/404/503 等都是**正常返回一个 Response**,不抛异常。所以"被反爬挡了"表现为 `status in (403, 429, 503)` + body 里是挑战页,而**不是**异常。
 - **网络错误 → 异常**:静态链底层 curl_cffi 失败会抛 `CurlError`,`requests.py` 里重试 `retries` 次(默认 3),**耗尽后 `raise`**(`engines/static.py:260-273` / `:477-491`)。也就是连不上/DNS失败/超时这类会**冒泡成异常**,不会给你一个 Response。
 - **浏览器链**:`page.content()` 取内容失败会在 `_get_page_content` 内重试(最多 20 次 ×500ms),仍失败抛 `RuntimeError`(`convertor.py:211`);取 body 的其他异常被 `try/except` 吞掉,`page_content = b""`(`convertor.py:128-130`),即**返回一个 body 为空的 Response**。Playwright 导航级超时(`timeout` 参数,默认 30000ms)会由 Playwright 抛 `TimeoutError`。
-- **Cloudflare 检测只在浏览器链存在**:`_base.py:545 _detect_cloudflare()` + `_stealth.py` 里靠 `<title>Just a moment...</title>` / "Verifying you are human." 等文本判定。**静态 Fetcher 不做任何 Cloudflare 识别**——它只会给你一个 403/503 的 Response,body 是挑战页。
+- **Cloudflare 检测只在浏览器链存在**:`_base.py:545 _detect_cloudflare()` 判**挑战类型**——靠 `cType: 'non-interactive'|'managed'|'interactive'` 字符串匹配(`_base.py:563-570`)返回对应类型,或命中内嵌 turnstile 脚本 `script[src*="challenges.cloudflare.com/turnstile/v"]` 返回 `"embedded"`(`_base.py:572-575`),都不中返回 `None`;**注意它不看 `<title>Just a moment...</title>`**。`<title>Just a moment...</title>` / "Verifying you are human." 那几个文本是 `_stealth.py` 的**求解轮询循环**(`_stealth.py:121/132/149/164/177` 等)用来判断挑战页是否还在的条件,不是检测入口。**静态 Fetcher 不做任何 Cloudflare 识别**——它只会给你一个 403/503 的 Response,body 是挑战页。
 
 > **对 P2 的直接含义**:我们的 `fetch_status` 不能只 try/except。既要 catch 异常(→ `failed`/`timeout`),也要**检查 `response.status` 和 body 特征**来判 `blocked`。
 

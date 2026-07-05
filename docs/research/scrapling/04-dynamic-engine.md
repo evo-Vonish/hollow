@@ -62,7 +62,7 @@
 | `useragent` | `None` | 自定义 UA;不传且 headless 时自动生成真实 UA(`_base.py:446-451`)。 |
 | `real_chrome` | `False` | 用系统 Chrome(`_base.py:469`)。 |
 | `cdp_url` | `None` | 连远程浏览器(`_controllers.py:78-79 / 266-267`)。 |
-| `proxy` / `proxy_rotator` | `None` | 静态代理 / 轮换器,二者互斥(`_validators.py:102-106`)。用代理时会**每请求新建 context**(见第四节)。 |
+| `proxy` / `proxy_rotator` | `None` | 静态代理 / 轮换器,二者互斥(`_validators.py:102-106`)。**注意:session 级静态 `proxy` 会被烘进持久化上下文的 `_context_options["proxy"]`(`_base.py:439`)、跨 tab 复用,并不会每请求新建 context;只有 `proxy_rotator` 或每请求 `fetch(url, proxy=...)` 覆盖(`_controllers.py:123` pop 出的 `static_proxy`)才会走每请求新建 context 分支**(见第四节)。 |
 | `max_pages` | `1` | 标签页池上限,`ge=1, le=50`(`_validators.py:54, 62`)。**只有 async 生效**(见第四节)。 |
 | `retries` | `3` | 失败重试次数,`ge=1, le=10`(`_validators.py:55, 90`)。见第六节告警。 |
 | `retry_delay` | `1`(秒) | 重试间隔(`_validators.py:91`)。 |
@@ -105,7 +105,7 @@
 - **P2 结论:并发抓取必须用 async 路径(`AsyncDynamicSession` / `async_fetch`),并用 `max_pages` 控制同时打开的 tab 数。**
 
 ### 4.4 代理轮换模式:每请求新建 context(更贵)
-- 当 `proxy` 非空时,`_page_generator` 走另一分支:`self.browser.new_context(...)` 建**独立上下文**,`finally` 里 `context.close()`(`_base.py:192-207 / 379-396`)。因为浏览器不能按 tab 设代理(`docs/dynamic.md:357`)。这条路更耗资源;VPS 上尽量避免每 URL 带静态代理。
+- 当 `fetch` 里解析出的**每请求 `proxy` 变量**非空时(来自 `proxy_rotator.get_proxy()` 或每请求 `fetch(url, proxy=...)` 覆盖,**不含** session 级静态 `config.proxy`——后者走持久化上下文,见第三节表 `proxy` 行),`_page_generator` 走另一分支:`self.browser.new_context(...)` 建**独立上下文**,`finally` 里 `context.close()`(`_base.py:192-207 / 379-396`)。因为浏览器不能按 tab 设代理(`docs/dynamic.md:357`)。这条路更耗资源;VPS 上尽量避免每 URL 带静态代理覆盖或用轮换器。
 
 ---
 
