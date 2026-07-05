@@ -42,7 +42,7 @@ from scrapling import Fetcher, AsyncFetcher, DynamicFetcher, StealthyFetcher
   - `FetcherSession`(HTTP 会话,可复用 curl 连接)
   - `DynamicSession` / `AsyncDynamicSession`(浏览器会话,带 page pooling)
   - `StealthySession` / `AsyncStealthySession`(隐身浏览器会话,带 page pooling)
-- **P2 强相关**:三个 Fetcher 的 `fetch()` classmethod 内部是 `with DynamicSession(**kwargs) as session: return session.fetch(url)`(`chrome.py:50-51`、`stealth_chrome.py:62-63`),即**每调用一次就新建并销毁一个浏览器**。要做浏览器实例池(上限 2-3、复用),应直接用 `AsyncDynamicSession` / `AsyncStealthySession` 这些 Session 类,而不是反复调 classmethod。见第 6 节。
+- **P2 强相关**:两个浏览器档 Fetcher 的 `fetch()` classmethod 内部是 `with <Session>(**kwargs) as session: return session.fetch(url)`(`DynamicFetcher` 用 `DynamicSession`,`chrome.py:50-51`;`StealthyFetcher` 用 `StealthySession`(变量名 `engine`),`stealth_chrome.py:62-63`),即**每调用一次就新建并销毁一个浏览器**。要做浏览器实例池(上限 2-3、复用),应直接用 `AsyncDynamicSession` / `AsyncStealthySession` 这些 Session 类,而不是反复调 classmethod。见第 6 节。
 
 ### 2.3 构造方式
 
@@ -119,6 +119,7 @@ StealthyFetcher.fetch(url)  # @classmethod,stealth_chrome.py:13-14
 | `locale` | `None` | `:83` |
 | `timezone_id` | `""` | `:72` |
 | `init_script` | `None`(须绝对路径 JS 文件) | `:79` |
+| `user_data_dir` | `""`(空则建临时目录) | `:80` |
 | `retries` | `3` | `:90` |
 | `retry_delay` | `1` | `:91` |
 | `max_pages` | `1`(page pool 上限) | `:62` |
@@ -142,7 +143,8 @@ StealthyFetcher.fetch(url)  # @classmethod,stealth_chrome.py:13-14
 | `allow_webgl` | `True`(关掉会被 WAF 抓,别关) | `_validators.py:145` |
 | `hide_canvas` | `False`(canvas 加噪防指纹) | `_validators.py:146` |
 | `block_webrtc` | `False`(防本地 IP 泄漏) | `_validators.py:147` |
-| `user_data_dir` | `""`(默认建临时目录) | `_validators.py:80` |
+
+上表四项(`solve_cloudflare` / `allow_webgl` / `hide_canvas` / `block_webrtc`)才是 `StealthConfig` 真正**新增**的字段(`_validators.py:145-148`)。注意 `user_data_dir` 并非隐身档专属——它是 `PlaywrightConfig` 的字段(`_validators.py:80`,默认 `""`,空则建临时目录),`DynamicFetcher` 同样接受;只是隐身档的 docstring(`stealth_chrome.py:48`)把它列了出来、浏览器档 docstring 没列。
 
 **关键联动**:若 `solve_cloudflare=True` 且 `timeout < 60000`,`StealthConfig.__post_init__` 会**强制把 timeout 抬到 60000ms**(`_validators.py:150-155`)。封装时若靠短 timeout 兜底,开 Cloudflare 求解会失效,需另加外层硬超时。
 
