@@ -1,0 +1,27 @@
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Common build/dependency output (trim once the stack is chosen)
+node_modules/
+dist/
+build/
+target/
+__pycache__/
+*.pyc
+.venv/
+venv/
