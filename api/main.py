@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from api import config, orchestrator
+from api import config, fetcher, orchestrator
 from api.models import ResearchRequest, ResearchResponse
 from api.searx_client import InvalidQueryError, SearxUnavailableError
 
@@ -24,6 +24,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await app.state.http.aclose()
+        fetcher.shutdown_executors()  # 取消排队抓取,不 join 在跑的浏览器线程
 
 
 app = FastAPI(title="hollow", version="0.0.1", lifespan=lifespan)

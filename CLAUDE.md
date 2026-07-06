@@ -7,7 +7,7 @@
 ## 必读文档(按优先级)
 
 1. `docs/references/AI_Research_Browser_落地项目书_v2.md` — 工程蓝图:选型、API 契约、阶段计划 P1-P5、风险册
-2. `docs/memory/2026-07-05-session-01.md` — **上一会话的完整记忆**:所有决策、实测结论、待拍板事项
+2. `docs/memory/2026-07-07-session-02.md` — **最新会话记忆**(本地环境/全部拍板/API 面现状/待办);更早:`2026-07-05-session-01.md`
 3. `docs/design/` — 01 搜索源注册表 / 02 裁剪分析 / 03 第一个 API 研究
 4. `docs/research/searxng/00-overview.md`、`docs/research/scrapling/00-overview.md` — 两大基建的源码研读总览(各带 10 篇子系统笔记,全部标注 文件:行号)
 

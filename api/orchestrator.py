@@ -102,7 +102,7 @@ def _assemble_item(candidate: dict, fr: fetcher.FetchResult, req: ResearchReques
         score=_safe_float(candidate.get("score")),
         fetched_at=fr.fetched_at,
         fetch_status=fr.status,  # type: ignore[arg-type]
-        engine_used="static",
+        engine_used=fr.tier,
         http_status=fr.http_status,
         word_count=word_count,
         purified=purified,
@@ -112,7 +112,8 @@ def _assemble_item(candidate: dict, fr: fetcher.FetchResult, req: ResearchReques
 
 
 async def _fetch_and_assemble(
-    index: int, candidate: dict, req: ResearchRequest, semaphore: asyncio.Semaphore
+    index: int, candidate: dict, req: ResearchRequest,
+    semaphore: asyncio.Semaphore, browser_semaphore: asyncio.Semaphore,
 ) -> tuple[int, ResearchItem, float]:
     """单条:抓取 -> 净化 -> 组装。任何异常都收敛成占位 item(禁止静默丢弃)。
     返回的第三项是抓取完成时刻(perf_counter),供 fetch.took_ms 保持
@@ -122,6 +123,8 @@ async def _fetch_and_assemble(
         semaphore=semaphore,
         timeout_s=req.fetch_timeout,
         impersonate=config.IMPERSONATE,
+        escalate=req.escalate,
+        browser_semaphore=browser_semaphore,
     )
     fetch_done = time.perf_counter()
     try:
@@ -190,13 +193,15 @@ async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
 
     # ③④⑤ 并行[抓取→净化→组装],谁先完成谁先产出
     semaphore = asyncio.Semaphore(req.concurrency)
+    # 每请求浏览器闸:限本请求同时占用的浏览器升级数,防跨请求垄断全局槽(审查 medium)
+    browser_semaphore = asyncio.Semaphore(config.REQUEST_BROWSER_CONCURRENCY)
     t0 = time.perf_counter()
     # 整单预算:扣掉搜索已耗时后的剩余,给抓取阶段;到点未完成的显式标 timeout
     fetch_deadline: float | None = None
     if req.budget is not None:
         fetch_deadline = max(0.01, req.budget - (t0 - t_start))
     tasks = [
-        asyncio.create_task(_fetch_and_assemble(i, c, req, semaphore))
+        asyncio.create_task(_fetch_and_assemble(i, c, req, semaphore, browser_semaphore))
         for i, c in enumerate(candidates)
     ]
     items: list[ResearchItem | None] = [None] * len(candidates)

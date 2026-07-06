@@ -35,6 +35,16 @@ IMPERSONATE: str | None = None if _imp in ("", "none", "off") else _imp
 FETCH_CONCURRENCY: int = _env_int("FETCH_CONCURRENCY", 5)
 # 单请求可指定的并行抓取上限(请求级 concurrency 参数的 le 边界)
 REQUEST_CONCURRENCY_MAX: int = 8
+
+# ---- 浏览器升级链(2026-07-07 拍板:blocked+failed 触发,三档 static→dynamic→stealthy) ----
+# 浏览器是重量级资源:进程级并发闸 + 专用线程池都用这个数
+BROWSER_CONCURRENCY: int = _env_int("HOLLOW_BROWSER_CONCURRENCY", 2)
+# 单请求可同时占用的浏览器升级数上限:防止一个 blocked 密集的请求垄断全局浏览器槽
+REQUEST_BROWSER_CONCURRENCY: int = _env_int("HOLLOW_REQUEST_BROWSER_CONCURRENCY", 2)
+# 浏览器档单 URL 超时(秒;Scrapling 浏览器 API 内部单位是毫秒,换算在 fetcher 里做)。
+# dynamic 与 stealthy 同款:本版**不开 solve_cloudflare**(其内部无上限循环不可中断,
+# 会导致线程泄漏——审查确认),故所有浏览器操作都受 playwright 自身 timeout 硬约束。
+BROWSER_TIMEOUT: float = _env_float("HOLLOW_BROWSER_TIMEOUT", 30.0)
 # 进程级抓取并发上限(跨请求共享),同时是专用抓取线程池的大小。
 # 闸位与线程一一对应:拿到闸即有线程,wait_for 不会把线程池排队时间误算进抓取超时
 # (审查发现:混用默认共享池时,高载下排队会被误判 timeout)。

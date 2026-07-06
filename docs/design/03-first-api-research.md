@@ -39,6 +39,8 @@
 - Chromium 预装在 `/opt/pw-browsers/chromium-1194/`,但 Scrapling 钉的 playwright 1.61.0 找 `chromium-1228`(**版本不匹配**)。可用 `executable_path` 指向预装的 1194 绕过——实测浏览器**能启动**。
 - 但启动后**导航失败**:Chromium 没走 egress 代理(需 `--proxy-server=` + NSS 信任 CA)。这是沙箱网络适配问题,可解但非 MVP 必需。
 - 结论:浏览器档**推迟**。生产 VPS 直连时这两坎都不存在(装匹配的 chromium + 直连网络)。
+- **(2026-07-07 更新:已落地)** 三档升级链上线(blocked/failed 触发,engine_used 标档位),见 docs/design/04 §二;
+  隐身档实测底层是 patchright(非 camoufox),直接复用 playwright 装的 chromium,无需单独安装。
 
 ### 2.4 trafilatura(净化,P3 能力)
 

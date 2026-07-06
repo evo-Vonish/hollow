@@ -28,6 +28,8 @@ class ResearchRequest(BaseModel):
                              le=config.REQUEST_CONCURRENCY_MAX)  # 并行抓取数
     budget: float | None = Field(default=None, gt=0, le=300)  # 整单时间预算(秒,从收到请求起算)
     max_content_chars: int | None = Field(default=None, ge=100)  # 单条净化正文截断上限
+    # 2026-07-07 拍板:三档升级链,blocked+failed 触发,默认开
+    escalate: bool = True
 
 
 class EngineFailure(BaseModel):

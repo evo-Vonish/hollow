@@ -165,6 +165,8 @@ class ResearchCreate(BaseModel):
                              le=config.REQUEST_CONCURRENCY_MAX, description="并行抓取数")
     max_content_chars: int | None = Field(default=None, ge=100,
                                           description="单条净化正文截断上限(字符)")
+    escalate: bool = Field(default=True,
+                           description="三档升级链:blocked/failed 时自动升级浏览器档")
     purify: bool = True
     language: str = "auto"
     time_range: str | None = None
@@ -210,7 +212,7 @@ async def create_research(body: ResearchCreate, request: Request):
         time_range=body.time_range, safesearch=body.safesearch,
         fetch_top_n=body.top_n, purify=body.purify, fetch_timeout=body.timeout,
         concurrency=body.concurrency, budget=body.budget,
-        max_content_chars=body.max_content_chars,
+        max_content_chars=body.max_content_chars, escalate=body.escalate,
     )
     client: httpx.AsyncClient = request.app.state.http
     rid = f"res_{uuid.uuid4().hex}"

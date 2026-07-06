@@ -46,6 +46,7 @@
 | `budget` | 不设(≤300) | **整单**时间预算(秒,从收到请求起算,**含搜索阶段**);抓取侧到点未完成的显式标 `timeout`;搜索侧被预算切断时每个请求引擎都记入 `engines_failed`(reason 带 budget exceeded)、items 为空——两侧都不静默超支,不变量不破 |
 | `concurrency` | 5(1~8) | 并行抓取数(进程级另有全局闸 16) |
 | `max_content_chars` | 不截断(≥100) | 单条净化正文截断上限;`word_count` 保留全文长度 |
+| `escalate` | true | **三档升级链**(2026-07-07 拍板):static 档 blocked/failed 时自动升级 dynamic(chromium)、仍失败再升 stealthy(patchright 反检测);timeout 不升级。任一档成功即用其结果,`engine_used` 标最终档位;走完仍失败时 error 保留完整升级历史。浏览器档进程级闸 2 + 每请求闸 2。**本版不主动解 Cloudflare**(vendor 的 solve_cloudflare 是不可中断的无上限循环,会致线程泄漏——审查确认;碰 CF 墙即返回 blocked,如实上报) |
 | `purify` | true | trafilatura 净化,失败回退 raw HTML |
 | `stream` | false | SSE 语义事件流 |
 

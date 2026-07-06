@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from curl_cffi import CurlError
-from scrapling.fetchers import Fetcher
+from scrapling.fetchers import DynamicFetcher, Fetcher, StealthyFetcher
 
 from api import config
 
@@ -26,6 +26,12 @@ _FETCH_EXECUTOR = ThreadPoolExecutor(
 )
 _GLOBAL_GATE = asyncio.Semaphore(config.FETCH_CONCURRENCY_GLOBAL)
 
+# 浏览器档(dynamic/stealthy)独立小池 + 闸:chromium 重量级,与静态档互不挤占
+_BROWSER_EXECUTOR = ThreadPoolExecutor(
+    max_workers=config.BROWSER_CONCURRENCY, thread_name_prefix="hollow-browser"
+)
+_BROWSER_GATE = asyncio.Semaphore(config.BROWSER_CONCURRENCY)
+
 
 @dataclass
 class FetchResult:
@@ -35,6 +41,7 @@ class FetchResult:
     body: bytes | None = None
     fetched_at: str | None = None
     error: str | None = None
+    tier: str = "static"  # static | dynamic | stealthy(最终使用的档位)
 
 
 def _now_iso() -> str:
@@ -43,9 +50,7 @@ def _now_iso() -> str:
 
 def _classify(http_status: int) -> tuple[str, str | None]:
     if http_status in BLOCKED_HTTP:
-        return "blocked", (
-            f"static tier blocked ({http_status}); browser upgrade deferred to v2"
-        )
+        return "blocked", f"blocked (HTTP {http_status})"
     if http_status >= 400:
         return "failed", f"HTTP {http_status}"
     return "ok", None
@@ -81,25 +86,107 @@ def _fetch_sync(url: str, timeout_s: float, impersonate: str | None) -> FetchRes
                        fetched_at=fetched_at, error=error)
 
 
+def _fetch_browser_sync(url: str, timeout_s: float, tier: str) -> FetchResult:
+    """浏览器档(dynamic=playwright chromium / stealthy=patchright 反检测)。
+    Scrapling 浏览器 API 的 timeout 单位是毫秒(静态档才是秒)。retries=1 预算可控。
+
+    **本版不开 solve_cloudflare**:其 vendor 实现(_stealth.py)是不受 timeout
+    约束、不可中断的无上限循环,run_in_executor 又杀不掉线程 → 线程泄漏(审查确认的
+    high 缺陷根因)。关掉后,goto 等操作全部受 playwright 的 timeout 硬约束,线程必在
+    timeout 内返回。碰到 Cloudflare 挑战墙 → 返回 blocked,如实上报(不静默、不卡死)。
+    (主动解 CF 需可中断执行——独立进程 + kill——才能安全启用,记入待办。)"""
+    fetched_at = _now_iso()
+    try:
+        fetcher_cls = StealthyFetcher if tier == "stealthy" else DynamicFetcher
+        resp = fetcher_cls.fetch(
+            url, headless=True, timeout=int(timeout_s * 1000), retries=1,
+        )
+    except Exception as e:
+        first_line = str(e).split("\n")[0][:200]  # playwright 错误带多行 Call log,只留首行
+        return FetchResult(url, "failed", fetched_at=fetched_at, tier=tier,
+                           error=f"{type(e).__name__}: {first_line}")
+    status_label, error = _classify(resp.status)
+    body = resp.body if status_label == "ok" else None
+    return FetchResult(url, status_label, http_status=resp.status, body=body,
+                       fetched_at=fetched_at, error=error, tier=tier)
+
+
+def _attempt_summary(fr: FetchResult) -> str:
+    return f"{fr.tier}: {fr.error or f'HTTP {fr.http_status}'}"
+
+
+async def _run_browser_tier(
+    url: str, tier: str, browser_semaphore: asyncio.Semaphore
+) -> FetchResult:
+    """跑一档浏览器抓取。两道闸:
+    - browser_semaphore(每请求):限单请求同时占用的浏览器升级数,防跨请求垄断(审查 medium)
+    - _BROWSER_GATE(进程级):**绑定线程真实生命周期**——acquire 后只有 _fetch_browser_sync
+      线程真正结束(done_callback)才 release,故"持闸==持线程槽"。排队发生在 acquire 处、
+      不计入下方超时窗口,等价于静态档的"闸位与线程一一对应"不变量(审查确认的 high 缺陷修复)。
+    下方 wait_for 只是逃生舱:线程已有 playwright 硬超时兜底,shield 保证逃生不取消线程
+    (线程仍需跑完才归还槽,gate 不会被提前释放而脱钩)。"""
+    timeout_s = config.BROWSER_TIMEOUT
+    loop = asyncio.get_running_loop()
+    async with browser_semaphore:
+        await _BROWSER_GATE.acquire()
+        fut = loop.run_in_executor(_BROWSER_EXECUTOR, _fetch_browser_sync,
+                                   url, timeout_s, tier)
+        fut.add_done_callback(lambda _f: _BROWSER_GATE.release())
+        try:
+            return await asyncio.wait_for(asyncio.shield(fut), timeout=timeout_s + 15)
+        except asyncio.TimeoutError:
+            return FetchResult(url, "timeout", fetched_at=_now_iso(), tier=tier,
+                               error=f"browser escape-hatch timeout after {timeout_s + 15}s")
+
+
+def shutdown_executors() -> None:
+    """进程关闭时取消排队中的抓取,不 join 在跑的线程(uvicorn lifespan 收尾调用)。
+    在跑的浏览器线程因已关 solve_cloudflare 而有界(≤timeout),不会无限阻塞退出。"""
+    _FETCH_EXECUTOR.shutdown(wait=False, cancel_futures=True)
+    _BROWSER_EXECUTOR.shutdown(wait=False, cancel_futures=True)
+
+
 async def fetch_one(
     url: str,
     *,
     semaphore: asyncio.Semaphore,
     timeout_s: float,
     impersonate: str | None,
+    escalate: bool = True,
+    browser_semaphore: asyncio.Semaphore | None = None,
 ) -> FetchResult:
+    """三档升级链:static → (blocked|failed 时) dynamic → (blocked|failed 时) stealthy。
+    2026-07-07 拍板:blocked+failed 都触发升级;timeout 不升级(浏览器重试只会翻倍等待)。
+    任一档 ok 即返回该档结果;走完仍失败时,error 里保留完整升级历史(可溯源)。
+    browser_semaphore 为空时新建一个(独立调用/测试用);编排器会传共享的每请求闸。"""
+    if browser_semaphore is None:
+        browser_semaphore = asyncio.Semaphore(config.REQUEST_BROWSER_CONCURRENCY)
     async with semaphore, _GLOBAL_GATE:
         loop = asyncio.get_running_loop()
         try:
             # 外层兜底超时 = curl 超时 + 5s 余量;正常情况 curl 先到点
-            return await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 loop.run_in_executor(
                     _FETCH_EXECUTOR, _fetch_sync, url, timeout_s, impersonate
                 ),
                 timeout=timeout_s + 5,
             )
         except asyncio.TimeoutError:
-            return FetchResult(url, "timeout", fetched_at=_now_iso(),
-                               error=f"hard timeout after {timeout_s + 5}s (outer wait_for)")
+            result = FetchResult(url, "timeout", fetched_at=_now_iso(),
+                                 error=f"hard timeout after {timeout_s + 5}s (outer wait_for)")
+
+    if not escalate or result.status not in ("blocked", "failed"):
+        return result
+
+    history = [_attempt_summary(result)]
+    for tier in ("dynamic", "stealthy"):
+        result = await _run_browser_tier(url, tier, browser_semaphore)
+        if result.status == "ok":
+            return result
+        history.append(_attempt_summary(result))
+        if result.status == "timeout":  # 超时不再往上升
+            break
+    result.error = "escalation exhausted: " + " -> ".join(history)
+    return result
 
 
