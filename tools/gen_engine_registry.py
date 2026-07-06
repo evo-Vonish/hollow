@@ -186,14 +186,20 @@ REMOVED_OFFBRAND = {"frinkiac", "findthatmeme", "9gag", "geizhals", "shopify sto
 # L3 场景默认集(docs/design/02 §四草案 + 2026-07-06 拍板与实测修订):
 # - 拍板:DDG 进通用默认;中文场景 baidu/quark/sogou/bilibili 全放(quark 家用IP实测复活)
 # - 实测修订:startpage 降出通用默认(双环境全挂:数据中心 denied/家用代理 parsing error)
+# - 2026-07-06 二次拍板:新增 knowledge(百科参考)与 social(社区舆情)两场景;
+#   场景间允许共享引擎(scenes 是数组);zh 短期保留场景、中期升级 region 修饰符
 SCENES = {
     "general":  ["brave", "duckduckgo", "mojeek", "wikipedia", "wikidata"],
+    "knowledge": ["wikipedia", "wikidata", "wiktionary", "wikibooks",
+                  "wikisource", "openlibrary"],
     "dev":      ["github", "stackoverflow", "askubuntu", "superuser", "mdn",
                  "hackernews", "docker hub", "pypi", "npm", "arch linux wiki"],
     "academic": ["arxiv", "semantic scholar", "pubmed", "crossref", "openalex",
                  "google scholar"],
     "news":     ["brave.news", "duckduckgo news", "bing news", "google news",
                  "reuters", "wikinews"],
+    "social":   ["reddit", "hackernews", "lemmy posts", "mastodon hashtags",
+                 "sogou wechat"],
     "images":   ["bing images", "duckduckgo images", "brave.images",
                  "wikicommons.images", "unsplash", "flickr"],
     "av":       ["youtube", "vimeo", "dailymotion", "soundcloud",
@@ -311,7 +317,9 @@ out.append("#          | default(L3 场景默认集,scenes 标场景) —— doc
 out.append("meta:")
 out.append("  source: vendor/searxng/searx/settings.yml@a643858")
 out.append("  updated: '2026-07-06'")
-out.append("  status_model: 343 = removed(124) + pool(177) + default(42); 判据 legal(14)+keyed(15)+inactive(52)+lowq(38)+offbrand(5)")
+out.append(f"  status_model: 343 = removed({st_count['removed']}) + pool({st_count['pool']}) + default({st_count['default']}); "
+           f"判据 legal({reason_count['legal']})+keyed({reason_count['keyed']})+inactive({reason_count['inactive']})"
+           f"+lowq({reason_count['lowq']})+offbrand({reason_count['offbrand']})")
 out.append("  revivable: [" + ", ".join(f'"{n}"' for n in REVIVABLE) + "]  # 卡密钥/上游修复,条件成熟优先接回")
 out.append("  scenes:")
 for k, v in SCENES.items():
@@ -354,8 +362,8 @@ EXPECTED_REASONS = {"legal":14, "keyed":15, "inactive":52, "lowq":38, "offbrand"
 errors = []
 if st_count["removed"] != 124:
     errors.append(f"removed={st_count['removed']} != 124")
-if st_count["default"] != 42:  # 43 草案 − startpage(2026-07-06 降出)
-    errors.append(f"default={st_count['default']} != 42")
+if st_count["default"] != 50:  # 43 草案 − startpage降出 + knowledge/social 新增 8
+    errors.append(f"default={st_count['default']} != 50")
 pool_matrix = collections.Counter(
     (x["type"], x["tier"]) for x in entries if x["status"] in ("pool","default"))
 for key, want in EXPECTED_POOL_MATRIX.items():

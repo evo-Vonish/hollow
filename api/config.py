@@ -33,13 +33,15 @@ _imp = _env_str("HOLLOW_IMPERSONATE", "chrome").strip().lower()
 IMPERSONATE: str | None = None if _imp in ("", "none", "off") else _imp
 
 FETCH_CONCURRENCY: int = _env_int("FETCH_CONCURRENCY", 5)
+# 单请求可指定的并行抓取上限(请求级 concurrency 参数的 le 边界)
+REQUEST_CONCURRENCY_MAX: int = 8
 # 进程级抓取并发上限(跨请求共享),同时是专用抓取线程池的大小。
 # 闸位与线程一一对应:拿到闸即有线程,wait_for 不会把线程池排队时间误算进抓取超时
 # (审查发现:混用默认共享池时,高载下排队会被误判 timeout)。
 FETCH_CONCURRENCY_GLOBAL: int = _env_int("FETCH_CONCURRENCY_GLOBAL", 16)
 FETCH_TIMEOUT: float = _env_float("FETCH_TIMEOUT", 15.0)
 FETCH_TOP_N_DEFAULT: int = 5
-FETCH_TOP_N_MAX: int = 8
+FETCH_TOP_N_MAX: int = 20  # 2026-07-06 拍板:8→20(场景多选并集召回更大,时间预算兜底)
 
 # 抓取代理:显式配置优先,否则跟随系统环境变量(curl_cffi trust_env 同款语义)
 FETCH_PROXY: str | None = (

@@ -7,13 +7,15 @@
 meta:
   source: vendor/searxng/searx/settings.yml@a643858
   updated: '2026-07-06'
-  status_model: 343 = removed(124) + pool(177) + default(42); 判据 legal(14)+keyed(15)+inactive(52)+lowq(38)+offbrand(5)
+  status_model: 343 = removed(124) + pool(169) + default(50); 判据 legal(14)+keyed(15)+inactive(52)+lowq(38)+offbrand(5)
   revivable: ["google cse", "deepl", "springer nature", "core.ac.uk", "astrophysics data system", "wolframalpha_api", "marginalia"]  # 卡密钥/上游修复,条件成熟优先接回
   scenes:
     general: ["brave", "duckduckgo", "mojeek", "wikipedia", "wikidata"]
+    knowledge: ["wikipedia", "wikidata", "wiktionary", "wikibooks", "wikisource", "openlibrary"]
     dev: ["github", "stackoverflow", "askubuntu", "superuser", "mdn", "hackernews", "docker hub", "pypi", "npm", "arch linux wiki"]
     academic: ["arxiv", "semantic scholar", "pubmed", "crossref", "openalex", "google scholar"]
     news: ["brave.news", "duckduckgo news", "bing news", "google news", "reuters", "wikinews"]
+    social: ["reddit", "hackernews", "lemmy posts", "mastodon hashtags", "sogou wechat"]
     images: ["bing images", "duckduckgo images", "brave.images", "wikicommons.images", "unsplash", "flickr"]
     av: ["youtube", "vimeo", "dailymotion", "soundcloud", "wikicommons.videos"]
     zh: ["baidu", "quark", "sogou", "bilibili"]
@@ -97,20 +99,20 @@ engines:
   - {name: "yacy", module: yacy, tier: T3, type: web, cats: [general], default: false, status: removed, removed_reason: lowq}
   - {name: "zapmeta", module: xpath, tier: T3, type: web, cats: [general], default: false, status: removed, removed_reason: lowq}
   # ================ 知识百科 (knowledge) × 33 ================
-  - {name: "wikibooks", module: mediawiki, tier: T0, type: knowledge, cats: [general, wikimedia], default: false, status: pool}
-  - {name: "wikidata", module: wikidata, tier: T0, type: knowledge, cats: [general], status: default, scenes: [general]}
-  - {name: "wikipedia", module: wikipedia, tier: T0, type: knowledge, cats: [general], status: default, scenes: [general]}
+  - {name: "wikibooks", module: mediawiki, tier: T0, type: knowledge, cats: [general, wikimedia], default: false, status: default, scenes: [knowledge]}
+  - {name: "wikidata", module: wikidata, tier: T0, type: knowledge, cats: [general], status: default, scenes: [general, knowledge]}
+  - {name: "wikipedia", module: wikipedia, tier: T0, type: knowledge, cats: [general], status: default, scenes: [general, knowledge]}
   - {name: "wikiquote", module: mediawiki, tier: T0, type: knowledge, cats: [general, wikimedia], default: false, status: pool}
-  - {name: "wikisource", module: mediawiki, tier: T0, type: knowledge, cats: [general, wikimedia], default: false, status: pool}
+  - {name: "wikisource", module: mediawiki, tier: T0, type: knowledge, cats: [general, wikimedia], default: false, status: default, scenes: [knowledge]}
   - {name: "wikispecies", module: mediawiki, tier: T0, type: knowledge, cats: [general, science, wikimedia], default: false, status: pool}
   - {name: "wikiversity", module: mediawiki, tier: T0, type: knowledge, cats: [general, wikimedia], default: false, status: pool}
   - {name: "wikivoyage", module: mediawiki, tier: T0, type: knowledge, cats: [general, wikimedia], default: false, status: pool}
-  - {name: "wiktionary", module: mediawiki, tier: T0, type: knowledge, cats: [dictionaries, wikimedia], status: pool}
+  - {name: "wiktionary", module: mediawiki, tier: T0, type: knowledge, cats: [dictionaries, wikimedia], status: default, scenes: [knowledge]}
   - {name: "ddg definitions", module: duckduckgo_definitions, tier: T1, type: knowledge, cats: [general], default: false, status: pool}
   - {name: "duden", module: duden, tier: T1, type: knowledge, cats: [general], default: false, status: pool}
   - {name: "goodreads", module: goodreads, tier: T1, type: knowledge, cats: [general], default: false, status: pool}
   - {name: "imdb", module: imdb, tier: T1, type: knowledge, cats: [general], default: false, status: pool}
-  - {name: "openlibrary", module: openlibrary, tier: T1, type: knowledge, cats: [general], default: false, status: pool}
+  - {name: "openlibrary", module: openlibrary, tier: T1, type: knowledge, cats: [general], default: false, status: default, scenes: [knowledge]}
   - {name: "rottentomatoes", module: rottentomatoes, tier: T1, type: knowledge, cats: [general], default: false, status: pool}
   - {name: "wolframalpha", module: wolframalpha_noapi, tier: T1, type: knowledge, cats: [general], default: false, status: pool}
   - {name: "wolframalpha_api", module: wolframalpha_api, tier: T1, type: knowledge, cats: [general], default: false, inactive: true, status: removed, removed_reason: keyed, note: "可复活:需密钥"}
@@ -156,7 +158,7 @@ engines:
   - {name: "crates.io", module: crates, tier: T1, type: dev, cats: [general], default: false, status: pool}
   - {name: "docker hub", module: docker_hub, tier: T1, type: dev, cats: [it, packages], status: default, scenes: [dev]}
   - {name: "gitlab", module: gitlab, tier: T1, type: dev, cats: [general], default: false, status: pool}
-  - {name: "hackernews", module: hackernews, tier: T1, type: dev, cats: [general], default: false, status: default, scenes: [dev]}
+  - {name: "hackernews", module: hackernews, tier: T1, type: dev, cats: [general], default: false, status: default, scenes: [dev, social]}
   - {name: "huggingface", module: huggingface, tier: T1, type: dev, cats: [general], default: false, status: pool}
   - {name: "huggingface datasets", module: huggingface, tier: T1, type: dev, cats: [general], default: false, status: pool}
   - {name: "huggingface spaces", module: huggingface, tier: T1, type: dev, cats: [general], default: false, status: pool}
@@ -338,14 +340,14 @@ engines:
   - {name: "tusksearch videos", module: tusksearch, tier: T3, type: av, cats: [videos], default: false, status: removed, removed_reason: lowq}
   - {name: "vuhuv videos", module: vuhuv, tier: T3, type: av, cats: [videos], default: false, status: removed, removed_reason: lowq}
   # ================ 社交论坛 (social) × 11 ================
-  - {name: "reddit", module: reddit, tier: T0, type: social, cats: [general], default: false, status: pool}
-  - {name: "sogou wechat", module: sogou_wechat, tier: T1, type: social, cats: [general], default: false, status: pool}
+  - {name: "reddit", module: reddit, tier: T0, type: social, cats: [general], default: false, status: default, scenes: [social]}
+  - {name: "sogou wechat", module: sogou_wechat, tier: T1, type: social, cats: [general], default: false, status: default, scenes: [social]}
   - {name: "9gag", module: 9gag, tier: T2, type: social, cats: [general], default: false, status: removed, removed_reason: offbrand}
   - {name: "lemmy comments", module: lemmy, tier: T2, type: social, cats: [general], status: pool}
   - {name: "lemmy communities", module: lemmy, tier: T2, type: social, cats: [general], status: pool}
-  - {name: "lemmy posts", module: lemmy, tier: T2, type: social, cats: [general], status: pool}
+  - {name: "lemmy posts", module: lemmy, tier: T2, type: social, cats: [general], status: default, scenes: [social]}
   - {name: "lemmy users", module: lemmy, tier: T2, type: social, cats: [general], status: pool}
-  - {name: "mastodon hashtags", module: mastodon, tier: T2, type: social, cats: [general], status: pool}
+  - {name: "mastodon hashtags", module: mastodon, tier: T2, type: social, cats: [general], status: default, scenes: [social]}
   - {name: "mastodon users", module: mastodon, tier: T2, type: social, cats: [general], status: pool}
   - {name: "boardreader", module: boardreader, tier: T3, type: social, cats: [general], default: false, status: removed, removed_reason: lowq}
   - {name: "tootfinder", module: tootfinder, tier: T3, type: social, cats: [general], status: pool}

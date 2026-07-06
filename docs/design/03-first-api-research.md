@@ -89,7 +89,7 @@ POST /v0/research
   "language": "auto",          // 可选
   "time_range": null,          // 可选
   "safesearch": 0,             // 可选
-  "fetch_top_n": 5,            // 抓取前 N 条,默认 5,≤8
+  "fetch_top_n": 5,            // 抓取前 N 条,默认 5,≤20(2026-07-06 拍板由 8 放宽)
   "purify": true,              // 是否 trafilatura 净化,默认 true
   "fetch_timeout": 15          // 每 URL 抓取超时(秒),默认 15
 }

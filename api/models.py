@@ -23,6 +23,11 @@ class ResearchRequest(BaseModel):
     )
     purify: bool = True
     fetch_timeout: float = Field(default=config.FETCH_TIMEOUT, gt=0, le=60)
+    # 2026-07-06 拍板新增(可选,/v0 缺省行为不变):
+    concurrency: int = Field(default=config.FETCH_CONCURRENCY, ge=1,
+                             le=config.REQUEST_CONCURRENCY_MAX)  # 并行抓取数
+    budget: float | None = Field(default=None, gt=0, le=300)  # 整单时间预算(秒,从收到请求起算)
+    max_content_chars: int | None = Field(default=None, ge=100)  # 单条净化正文截断上限
 
 
 class EngineFailure(BaseModel):

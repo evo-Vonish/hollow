@@ -76,6 +76,9 @@ venv:`.venv-searx` = `vendor/searxng/requirements.txt` + `tzdata`。
 - 顺带:Scrapling 静态档**内置 retries=3**(每次失败 sleep 1s 再试),单 URL 线程内最坏 3×timeout,外层 wait_for 兜不住 → 网关显式传 `retries=1`(单次尝试),超时预算才可控。
 - 另:SearXNG 的 arxiv 引擎给出的结果 URL 是 `http://arxiv.org/...`(非 https),直连时 80 端口整个超时;经代理 301→https 正常。依赖上面的重定向修法。
 - Windows 杂项:本机控制台代码页是 cp932,Python 子进程打非 ASCII 要设 `PYTHONIOENCODING=utf-8`。
+- **测本机服务别忘了绕开系统代理**:全局 `HTTP_PROXY` 会让 python httpx/requests 把
+  `127.0.0.1` 的请求也路由进本地代理,客户端侧凭空多 8~14s(实测网关 56ms 返回,客户端量到 14s)。
+  httpx 用 `trust_env=False`;curl 不受影响(它只认小写 `http_proxy`)。
 
 ## 五、Scrapling 浏览器档(playwright 1.61.0 + chromium)
 
