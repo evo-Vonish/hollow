@@ -9,10 +9,10 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 
 from api import config, fetcher, orchestrator
 from api.models import ResearchRequest, ResearchResponse
+from api.responses import UTF8JSONResponse
 from api.searx_client import InvalidQueryError, SearxUnavailableError
 
 
@@ -27,7 +27,8 @@ async def lifespan(app: FastAPI):
         fetcher.shutdown_executors()  # 取消排队抓取,不 join 在跑的浏览器线程
 
 
-app = FastAPI(title="hollow", version="0.0.1", lifespan=lifespan)
+app = FastAPI(title="hollow", version="0.0.1", lifespan=lifespan,
+              default_response_class=UTF8JSONResponse)
 
 # /v1 正式 API 面(OpenAI 风格的封套/错误/SSE,自家域模型;见 api/v1.py)
 from api.v1 import router as _v1_router  # noqa: E402
@@ -43,7 +44,7 @@ async def _validation_error(request, exc: RequestValidationError):
     first = errors[0] if errors else {}
     loc = [str(x) for x in first.get("loc", []) if x != "body"]
     param = ".".join(loc) or None
-    return JSONResponse(
+    return UTF8JSONResponse(
         status_code=400,
         content={"error": {
             "message": f"Invalid request: {param or 'body'}: {first.get('msg', 'validation error')}",

@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api import config, orchestrator, registry
 from api.models import ResearchItem, ResearchRequest, ResearchResponse, SearchMeta
+from api.responses import UTF8JSONResponse
 from api.searx_client import InvalidQueryError, SearxUnavailableError
 from api import searx_client
 
@@ -38,7 +39,7 @@ router = APIRouter(prefix="/v1")
 
 def _error(status: int, message: str, err_type: str, code: str,
            param: str | None = None) -> JSONResponse:
-    return JSONResponse(
+    return UTF8JSONResponse(
         status_code=status,
         content={"error": {"message": message, "type": err_type,
                            "param": param, "code": code}},
