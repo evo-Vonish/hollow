@@ -18,18 +18,21 @@ class ResearchRequest(BaseModel):
     language: str = "auto"
     time_range: str | None = None
     safesearch: int = Field(default=0, ge=0, le=2)
+    # fetch_top_n 语义:想要的**成功正文条数**(target ok);fast 模式凑够即停
     fetch_top_n: int = Field(
         default=config.FETCH_TOP_N_DEFAULT, ge=1, le=config.FETCH_TOP_N_MAX
     )
     purify: bool = True
-    fetch_timeout: float = Field(default=config.FETCH_TIMEOUT, gt=0, le=60)
     # 2026-07-06 拍板新增(可选,/v0 缺省行为不变):
     concurrency: int = Field(default=config.FETCH_CONCURRENCY, ge=1,
                              le=config.REQUEST_CONCURRENCY_MAX)  # 并行抓取数
     budget: float | None = Field(default=None, gt=0, le=300)  # 整单时间预算(秒,从收到请求起算)
     max_content_chars: int | None = Field(default=None, ge=100)  # 单条净化正文截断上限
-    # 2026-07-07 拍板:三档升级链,blocked+failed 触发,默认开
-    escalate: bool = True
+    # 2026-07-07 拍板:一根旋钮 fast↔thorough(速度/广度 ↔ 质量/难度)
+    mode: Literal["fast", "balanced", "thorough"] = config.DEFAULT_MODE
+    # escalate/fetch_timeout 缺省 None = 跟随 mode 预设;显式传值则覆盖预设
+    escalate: bool | None = None
+    fetch_timeout: float | None = Field(default=None, gt=0, le=60)
 
 
 class EngineFailure(BaseModel):
@@ -62,11 +65,15 @@ class SearchMeta(BaseModel):
 
 
 class FetchMeta(BaseModel):
-    requested: int
+    target: int          # 想要的成功正文条数(= top_n)
+    pool: int            # 候选池:实际考虑过的 URL 数(fast 模式会 > requested)
+    requested: int       # 实际发起并拿到结果的条数(= len(items),ok/failed/timeout/blocked 之和)
     ok: int
     failed: int
-    timeout: int
+    timeout: int         # 单 URL 抓取超时(真实抓取结果),非整单预算
     blocked: int
+    cancelled: int       # 够了/预算到而丢弃的候选(禁止静默丢弃:显式计数,pool = requested + cancelled)
+    stopped_reason: str  # target_reached | pool_exhausted | budget
     took_ms: int
 
 

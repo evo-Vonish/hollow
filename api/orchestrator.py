@@ -1,8 +1,14 @@
 # -*- coding: utf-8 -*-
-"""编排:search → select → gather-fetch → purify → assemble(docs/design/03 §3)。
+"""编排:search → select 候选池 → 并发抓取(凑够即停)→ purify → assemble。
 
-不变量(契约):len(items) == fetch.requested == ok+failed+timeout+blocked。
-每个被选中的 URL 必有一条占位记录,任何一侧失败都显式可见。
+抓取模式(mode,docs/design/05):fast 超召回、先到先得凑够 top_n 条 ok 即砍其余;
+balanced/thorough 爬完候选池每条。
+
+不变量(契约):
+  fetch.requested == len(items) == ok+failed+timeout+blocked   (每条 item 有状态)
+  fetch.pool      == fetch.requested + fetch.cancelled          (候选无一静默丢弃)
+  fetch.ok        <= fetch.target                               (够了就停)
+被丢弃的候选显式计入 cancelled + stopped_reason,不静默消失。
 """
 import asyncio
 import time
@@ -111,9 +117,20 @@ def _assemble_item(candidate: dict, fr: fetcher.FetchResult, req: ResearchReques
     )
 
 
+def resolve_effective(req: ResearchRequest) -> tuple[bool, float, int]:
+    """按 mode 预设 + 显式覆盖,解出 (escalate, per_url_timeout, pool_size)。
+    escalate/fetch_timeout 为 None 时取 mode 预设,显式传值则覆盖。"""
+    preset = config.MODE_PRESETS.get(req.mode, config.MODE_PRESETS[config.DEFAULT_MODE])
+    escalate = preset["escalate"] if req.escalate is None else req.escalate
+    timeout_s = preset["timeout"] if req.fetch_timeout is None else req.fetch_timeout
+    pool_size = min(req.fetch_top_n * preset["pool_factor"], config.POOL_MAX)
+    return escalate, timeout_s, pool_size
+
+
 async def _fetch_and_assemble(
     index: int, candidate: dict, req: ResearchRequest,
     semaphore: asyncio.Semaphore, browser_semaphore: asyncio.Semaphore,
+    timeout_s: float, escalate: bool,
 ) -> tuple[int, ResearchItem, float]:
     """单条:抓取 -> 净化 -> 组装。任何异常都收敛成占位 item(禁止静默丢弃)。
     返回的第三项是抓取完成时刻(perf_counter),供 fetch.took_ms 保持
@@ -121,9 +138,9 @@ async def _fetch_and_assemble(
     fr = await fetcher.fetch_one(
         candidate["url"],
         semaphore=semaphore,
-        timeout_s=req.fetch_timeout,
+        timeout_s=timeout_s,
         impersonate=config.IMPERSONATE,
-        escalate=req.escalate,
+        escalate=escalate,
         browser_semaphore=browser_semaphore,
     )
     fetch_done = time.perf_counter()
@@ -179,8 +196,10 @@ async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
             q_sanitized=searx_client.sanitize_bang(req.q)[1],
         )
 
-    # ② 选取 top-N
-    candidates = select_candidates(outcome.results, req.fetch_top_n)
+    # ② 按 mode 解出有效参数,选候选池(fast 会超召回)
+    escalate, timeout_s, pool_size = resolve_effective(req)
+    target_ok = req.fetch_top_n
+    candidates = select_candidates(outcome.results, pool_size)
     search_meta = SearchMeta(
         engines_requested=engines,
         engines_used=outcome.engines_used,
@@ -191,53 +210,102 @@ async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
     )
     yield ("search", search_meta, len(candidates))
 
-    # ③④⑤ 并行[抓取→净化→组装],谁先完成谁先产出
+    # ③④⑤ 并发[抓取→净化→组装],谁先完成谁先产出;凑够 target_ok 条 ok 即砍其余
     semaphore = asyncio.Semaphore(req.concurrency)
     # 每请求浏览器闸:限本请求同时占用的浏览器升级数,防跨请求垄断全局槽(审查 medium)
     browser_semaphore = asyncio.Semaphore(config.REQUEST_BROWSER_CONCURRENCY)
     t0 = time.perf_counter()
-    # 整单预算:扣掉搜索已耗时后的剩余,给抓取阶段;到点未完成的显式标 timeout
-    fetch_deadline: float | None = None
+    fetch_deadline: float | None = None  # 整单预算扣掉搜索已耗时后的剩余
     if req.budget is not None:
         fetch_deadline = max(0.01, req.budget - (t0 - t_start))
     tasks = [
-        asyncio.create_task(_fetch_and_assemble(i, c, req, semaphore, browser_semaphore))
+        asyncio.create_task(
+            _fetch_and_assemble(i, c, req, semaphore, browser_semaphore, timeout_s, escalate)
+        )
         for i, c in enumerate(candidates)
     ]
-    items: list[ResearchItem | None] = [None] * len(candidates)
+
+    items: list[ResearchItem] = []
+    counts = {"ok": 0, "failed": 0, "timeout": 0, "blocked": 0}
+    cancelled = 0
     last_fetch_done = t0
-    try:
+    stopped_reason = "pool_exhausted"
+    pending: set = set(tasks)
+
+    def _record(fut) -> tuple[int, ResearchItem] | None:
+        """消费一个已完成任务:真实结果记入 items/counts 并返回 (index,item);
+        被取消的返回 None(计入 cancelled)。_fetch_and_assemble 契约上不抛非取消异常。"""
+        nonlocal cancelled, last_fetch_done
+        if fut.cancelled():
+            cancelled += 1
+            return None
         try:
-            for fut in asyncio.as_completed(tasks, timeout=fetch_deadline):
-                index, item, fetch_done = await fut
-                items[index] = item
-                last_fetch_done = max(last_fetch_done, fetch_done)
-                yield ("item", index, item)
-        except asyncio.TimeoutError:
-            # 预算耗尽:未完成的每条都补占位并照常产出事件,不变量不破。
-            # 抓取段终点计到预算切点,否则全超时会误报 took_ms=0(审查确认项)
-            last_fetch_done = time.perf_counter()
-            now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-            for i, c in enumerate(candidates):
-                if items[i] is None:
-                    placeholder = ResearchItem(
-                        url=(_safe_str(c.get("url")) or ""),
-                        fetch_status="timeout",
-                        fetched_at=now_iso,
-                        error=f"total budget {req.budget}s exceeded before fetch completed",
-                    )
-                    items[i] = placeholder
-                    yield ("item", i, placeholder)
-    finally:
-        for t in tasks:  # 预算耗尽/消费方断开时,不留孤儿任务
+            index, item, fetch_done = fut.result()
+        except asyncio.CancelledError:
+            cancelled += 1
+            return None
+        items.append(item)
+        counts[item.fetch_status] += 1
+        last_fetch_done = max(last_fetch_done, fetch_done)
+        return (index, item)
+
+    try:
+        while pending:
+            remaining: float | None = None
+            if fetch_deadline is not None:
+                remaining = fetch_deadline - (time.perf_counter() - t0)
+                if remaining <= 0:
+                    stopped_reason = "budget"
+                    break
+            done, pending = await asyncio.wait(
+                pending, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
+            )
+            if not done:  # 预算到点,这一轮无新完成
+                stopped_reason = "budget"
+                break
+            # asyncio.wait 一次可返回多条已完成:逐条消费,每加一条 ok 即判 target,
+            # 达标即停(ok 恒 == target,不越界)——该批剩余显式计 cancelled(审查确认)
+            done_list = list(done)
+            hit_target = False
+            for i, fut in enumerate(done_list):
+                rec = _record(fut)
+                if rec is not None:
+                    yield ("item", rec[0], rec[1])
+                if counts["ok"] >= target_ok:
+                    stopped_reason = "target_reached"
+                    for surplus in done_list[i + 1:]:
+                        surplus.cancel()
+                        cancelled += 1
+                    hit_target = True
+                    break
+            if hit_target:
+                break
+
+        # 收尾(非断开):按停止原因处理剩余 pending —— 禁止静默丢弃
+        if stopped_reason == "target_reached":
+            for t in pending:  # 已够,剩余候选显式计 cancelled
+                t.cancel()
+            cancelled += len(pending)
+        else:
+            # budget / pool_exhausted:pending 里"挂起期间已抓完"的排空进 items
+            # (不丢真实成功结果,审查 high);仍在跑的才 cancel;排空同样封顶 target
+            for t in list(pending):
+                if t.done() and counts["ok"] < target_ok:
+                    rec = _record(t)
+                    if rec is not None:
+                        yield ("item", rec[0], rec[1])
+                else:
+                    t.cancel()
+                    cancelled += 1
+            if stopped_reason == "budget":
+                # 抓取段跑满预算窗口:终点计到预算切点(否则零完成会误报 took_ms=0,审查回归)
+                last_fetch_done = time.perf_counter()
+    except (GeneratorExit, asyncio.CancelledError):
+        for t in pending:  # 消费方断开:全部取消,不计不产出
             t.cancel()
+        raise
     # 口径与旧版一致:只计抓取段(至最后一条 fetch 完成),净化/组装不计入
     fetch_took_ms = int((last_fetch_done - t0) * 1000)
-
-    final_items = [it for it in items if it is not None]
-    counts = {"ok": 0, "failed": 0, "timeout": 0, "blocked": 0}
-    for it in final_items:
-        counts[it.fetch_status] += 1
 
     yield (
         "done",
@@ -246,15 +314,19 @@ async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
             created_at=datetime.now(timezone.utc)
             .isoformat(timespec="seconds")
             .replace("+00:00", "Z"),
-            items=final_items,
+            items=items,
             meta=ResearchMeta(
                 search=search_meta,
                 fetch=FetchMeta(
-                    requested=len(final_items),
+                    target=target_ok,
+                    pool=len(candidates),
+                    requested=len(items),
                     ok=counts["ok"],
                     failed=counts["failed"],
                     timeout=counts["timeout"],
                     blocked=counts["blocked"],
+                    cancelled=cancelled,
+                    stopped_reason=stopped_reason,
                     took_ms=fetch_took_ms,
                 ),
             ),

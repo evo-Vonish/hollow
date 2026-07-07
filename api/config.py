@@ -53,6 +53,19 @@ FETCH_TIMEOUT: float = _env_float("FETCH_TIMEOUT", 15.0)
 FETCH_TOP_N_DEFAULT: int = 5
 FETCH_TOP_N_MAX: int = 20  # 2026-07-06 拍板:8→20(场景多选并集召回更大,时间预算兜底)
 
+# ---- 抓取模式(2026-07-07 拍板:一根旋钮 速度/广度 ↔ 质量/难度) ----
+# mode 是"预设":给 候选池倍数 / 升级链 / 单URL超时 设默认;显式传 escalate/timeout 仍覆盖。
+# - fast    广度/速度:超召回(池 = top_n×3),先到先得凑够 top_n 条 ok 就砍其余,不升级,短超时
+# - balanced默认(= 2026-07-07 前的行为):池 = top_n,爬完每条,升级链兜底,中超时
+# - thorough质量/难度:池 = top_n,死磕每条,升级链全开,长超时
+MODE_PRESETS: dict[str, dict] = {
+    "fast":     {"pool_factor": 3, "escalate": False, "timeout": 8.0},
+    "balanced": {"pool_factor": 1, "escalate": True,  "timeout": FETCH_TIMEOUT},
+    "thorough": {"pool_factor": 1, "escalate": True,  "timeout": 30.0},
+}
+DEFAULT_MODE: str = "balanced"
+POOL_MAX: int = 24  # 候选池封顶(fast 模式 top_n×factor 的上限)
+
 # 抓取代理:显式配置优先,否则跟随系统环境变量(curl_cffi trust_env 同款语义)
 FETCH_PROXY: str | None = (
     os.environ.get("HOLLOW_FETCH_PROXY")

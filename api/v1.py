@@ -20,6 +20,7 @@
 import json
 import time
 import uuid
+from typing import Literal
 
 import httpx
 from fastapi import APIRouter, Request
@@ -157,17 +158,22 @@ class ResearchCreate(BaseModel):
     scenes: list[str] | None = Field(default=None, description="场景,可多选,取并集")
     engines: list[str] | None = Field(default=None, description="自定义引擎,并入场景集")
     top_n: int = Field(default=config.FETCH_TOP_N_DEFAULT, ge=1,
-                       le=config.FETCH_TOP_N_MAX, description="最大抓取条数(最大找出量)")
-    timeout: float = Field(default=config.FETCH_TIMEOUT, gt=0, le=60,
-                           description="单 URL 抓取超时(秒)")
+                       le=config.FETCH_TOP_N_MAX, description="想要的成功正文条数(凑够即停)")
+    mode: Literal["fast", "balanced", "thorough"] = Field(
+        default=config.DEFAULT_MODE,
+        description="一根旋钮:fast 广度/速度(超召回+凑够即停+不升级) | "
+                    "balanced 默认 | thorough 质量/难度(死磕每条+升级全开)")
     budget: float | None = Field(default=None, gt=0, le=300,
-                                 description="整单时间预算(秒);到点未完成的显式标 timeout")
+                                 description="整单时间预算(秒);到点即返回,未完成的计入 cancelled")
     concurrency: int = Field(default=config.FETCH_CONCURRENCY, ge=1,
                              le=config.REQUEST_CONCURRENCY_MAX, description="并行抓取数")
     max_content_chars: int | None = Field(default=None, ge=100,
                                           description="单条净化正文截断上限(字符)")
-    escalate: bool = Field(default=True,
-                           description="三档升级链:blocked/failed 时自动升级浏览器档")
+    # timeout/escalate 缺省跟随 mode 预设;显式传值则覆盖
+    timeout: float | None = Field(default=None, gt=0, le=60,
+                                  description="单 URL 抓取超时(秒);缺省跟随 mode")
+    escalate: bool | None = Field(default=None,
+                                  description="三档升级链;缺省跟随 mode(fast 关/其余开)")
     purify: bool = True
     language: str = "auto"
     time_range: str | None = None
@@ -214,6 +220,7 @@ async def create_research(body: ResearchCreate, request: Request):
         fetch_top_n=body.top_n, purify=body.purify, fetch_timeout=body.timeout,
         concurrency=body.concurrency, budget=body.budget,
         max_content_chars=body.max_content_chars, escalate=body.escalate,
+        mode=body.mode,
     )
     client: httpx.AsyncClient = request.app.state.http
     rid = f"res_{uuid.uuid4().hex}"
@@ -230,7 +237,7 @@ async def create_research(body: ResearchCreate, request: Request):
 
     # ---- SSE:语义化事件,每条来源完成即推送 ----
     # 搜索先行完成再开流,搜索类错误仍走标准 HTTP 错误(客户端好处理);
-    # 开流之后的一切失败(含预算耗尽)都以占位 item 事件呈现,不断流。
+    # 开流后每条抓完即 item 事件;够了/预算到的候选不产 item,计入 completed 的 cancelled。
     events = orchestrator.run_research_events(req, client)
     try:
         first = await events.__anext__()  # ("search", SearchMeta, selected)

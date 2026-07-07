@@ -41,31 +41,34 @@
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `top_n` | 5(1~20) | 最大抓取条数(最大找出量) |
-| `timeout` | 15(≤60) | **单 URL** 抓取超时(秒) |
-| `budget` | 不设(≤300) | **整单**时间预算(秒,从收到请求起算,**含搜索阶段**);抓取侧到点未完成的显式标 `timeout`;搜索侧被预算切断时每个请求引擎都记入 `engines_failed`(reason 带 budget exceeded)、items 为空——两侧都不静默超支,不变量不破 |
-| `concurrency` | 5(1~8) | 并行抓取数(进程级另有全局闸 16) |
+| `top_n` | 5(1~20) | 想要的**成功正文条数**(target ok);fast 模式凑够即停 |
+| `mode` | `balanced` | **一根旋钮 速度/广度↔质量/难度**(2026-07-07 拍板,详 docs/design/05):`fast` 超召回(池 top_n×3)+凑够即砍+不升级+8s;`balanced` 默认(= 引入前行为);`thorough` 死磕每条+升级全开+30s。是预设,`escalate`/`timeout` 显式传值仍覆盖 |
+| `budget` | 不设(≤300) | **整单**时间预算(秒,含搜索阶段);到点即停,搜索侧被切每个引擎记入 `engines_failed`,抓取侧未完成的计入 `cancelled`——两侧都不静默超支 |
+| `concurrency` | 5(1~8) | 并行抓取数(进程级另有全局闸 16),与候选池独立 |
 | `max_content_chars` | 不截断(≥100) | 单条净化正文截断上限;`word_count` 保留全文长度 |
-| `escalate` | true | **三档升级链**(2026-07-07 拍板):static 档 blocked/failed 时自动升级 dynamic(chromium)、仍失败再升 stealthy(patchright 反检测);timeout 不升级。任一档成功即用其结果,`engine_used` 标最终档位;走完仍失败时 error 保留完整升级历史。浏览器档进程级闸 2 + 每请求闸 2。**本版不主动解 Cloudflare**(vendor 的 solve_cloudflare 是不可中断的无上限循环,会致线程泄漏——审查确认;碰 CF 墙即返回 blocked,如实上报) |
+| `timeout` | 跟随 mode | **单 URL** 抓取超时(秒);缺省跟随 mode 预设,显式传值覆盖 |
+| `escalate` | 跟随 mode | **三档升级链**:static blocked/failed 时升 dynamic(chromium)、仍失败升 stealthy(patchright 反检测);timeout 不升级。`engine_used` 标最终档位,走完仍失败 error 留完整升级历史。浏览器档进程级闸 2 + 每请求闸 2。**本版不主动解 Cloudflare**(vendor solver 是不可中断无上限循环,会致线程泄漏——审查确认;碰 CF 墙返回 blocked) |
 | `purify` | true | trafilatura 净化,失败回退 raw HTML |
 | `stream` | false | SSE 语义事件流 |
 
 非流式响应:`{"id":"res_…","object":"research","created":…,"query","scenes","engines",
 "items":[{"object":"research.item",…}],"search":{…},"fetch":{…}}`。
-不变量:`len(items) == fetch.requested == ok+failed+timeout+blocked`(预算耗尽路径同样成立)。
+`fetch` 账目:`{target, pool, requested, ok, failed, timeout, blocked, cancelled, stopped_reason, took_ms}`。
+不变量:`requested == len(items) == ok+failed+timeout+blocked`;`pool == requested + cancelled`;`ok <= target`。
+`stopped_reason` ∈ {`target_reached`, `pool_exhausted`, `budget`},被砍候选显式计入 `cancelled`,禁止静默丢弃。
 
 ### POST /v1/research + `"stream": true`(SSE)
 
 ```
 data: {"object":"research.event","event":"research.search.completed","id":"res_…","search":{…},"selected":5}
 data: {"object":"research.event","event":"research.item.completed","id":"res_…","index":2,"item":{…含 content}}
-data: …(每条来源完成即推,完成顺序 ≠ 选取顺位,靠 index 对位;预算耗尽的占位条目也走此事件)
-data: {"object":"research.event","event":"research.completed","id":"res_…","research":{汇总,items 不重复携带 content}}
+data: …(每条来源完成即推,完成顺序 ≠ 选取顺位,靠 index 对位)
+data: {"object":"research.event","event":"research.completed","id":"res_…","research":{汇总,含 fetch 账目;items 不重复携带 content}}
 data: [DONE]
 ```
 
-搜索阶段错误发生在开流前,走标准 HTTP 错误;开流后一切失败以占位 item 呈现,不断流。
-客户端断连时服务端取消未完成任务。
+搜索阶段错误发生在开流前,走标准 HTTP 错误;开流后每条抓完即 item 事件;
+够了/预算到的候选不产 item,计入 completed 的 `cancelled`。客户端断连时服务端取消未完成任务。
 
 ### GET /v1/engines · GET /v1/scenes
 
