@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 
 from api import config
 
-FetchStatus = Literal["ok", "failed", "timeout", "blocked"]
+# no_content:HTTP 2xx 但净化不出正文(空壳/反爬页/SPA 未渲染)——不算成功,内容闸门(design/05)
+FetchStatus = Literal["ok", "failed", "timeout", "blocked", "no_content"]
 
 
 class ResearchRequest(BaseModel):
@@ -67,11 +68,12 @@ class SearchMeta(BaseModel):
 class FetchMeta(BaseModel):
     target: int          # 想要的成功正文条数(= top_n)
     pool: int            # 候选池:实际考虑过的 URL 数(fast 模式会 > requested)
-    requested: int       # 实际发起并拿到结果的条数(= len(items),ok/failed/timeout/blocked 之和)
-    ok: int
+    requested: int       # 实际发起并拿到结果的条数(= len(items),各状态之和)
+    ok: int              # 真拿到正文(内容闸门通过)——只有它算"成功"、计入 target
     failed: int
     timeout: int         # 单 URL 抓取超时(真实抓取结果),非整单预算
     blocked: int
+    no_content: int      # HTTP 2xx 但无正文(空壳/反爬页):不算成功,不占 target(design/05)
     cancelled: int       # 够了/预算到而丢弃的候选(禁止静默丢弃:显式计数,pool = requested + cancelled)
     stopped_reason: str  # target_reached | pool_exhausted | budget
     took_ms: int

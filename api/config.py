@@ -53,6 +53,12 @@ FETCH_TIMEOUT: float = _env_float("FETCH_TIMEOUT", 15.0)
 FETCH_TOP_N_DEFAULT: int = 5
 FETCH_TOP_N_MAX: int = 20  # 2026-07-06 拍板:8→20(场景多选并集召回更大,时间预算兜底)
 
+# 内容闸门(2026-07-07):净化出的正文低于此字符数 = 空壳/反爬页/无正文 → no_content。
+# "成功"从"HTTP 2xx"重定义为"真拿到正文":no_content 不算 ok、不占结果位、触发升级链渲染。
+# ⚠️ 阈值需校准后上线(底线4):200 是起点——空壳提取为空(远低于),真文章通常 500+,
+# B站边栏/词典短条目在 200~500 之间是灰区,先从严还是从宽待实测调。
+MIN_CONTENT_CHARS: int = _env_int("HOLLOW_MIN_CONTENT_CHARS", 200)
+
 # ---- 抓取模式(2026-07-07 拍板:一根旋钮 速度/广度 ↔ 质量/难度) ----
 # mode 是"预设":给 候选池倍数 / 升级链 / 单URL超时 设默认;显式传 escalate/timeout 仍覆盖。
 # - fast    广度/速度:超召回(池 = top_n×3),先到先得凑够 top_n 条 ok 就砍其余,不升级,短超时

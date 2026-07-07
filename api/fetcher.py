@@ -14,10 +14,12 @@ from datetime import datetime, timezone
 from curl_cffi import CurlError
 from scrapling.fetchers import DynamicFetcher, Fetcher, StealthyFetcher
 
-from api import config
+from api import config, purifier
 
 BLOCKED_HTTP = {401, 403, 407, 429, 451}
 CURLE_OPERATION_TIMEDOUT = 28
+# 触发升级链的状态:被拦 / 失败 / 拿不到正文(空壳/SPA 未渲染 → 升 dynamic 渲染)
+_ESCALATE_ON = ("blocked", "failed", "no_content")
 
 # 专用抓取线程池 + 同容量进程级闸:拿到闸位即保证有空闲线程,
 # wait_for 的计时不含排队等待;也隔离净化侧 to_thread 的默认共享池。
@@ -36,9 +38,11 @@ _BROWSER_GATE = asyncio.Semaphore(config.BROWSER_CONCURRENCY)
 @dataclass
 class FetchResult:
     url: str
-    status: str  # ok | failed | timeout | blocked
+    status: str  # ok | failed | timeout | blocked | no_content
     http_status: int | None = None
-    body: bytes | None = None
+    content: str | None = None       # 净化后正文(内容闸门内前移,ok 才有)
+    purified: bool | None = None
+    word_count: int | None = None
     fetched_at: str | None = None
     error: str | None = None
     tier: str = "static"  # static | dynamic | stealthy(最终使用的档位)
@@ -48,19 +52,41 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _classify(http_status: int) -> tuple[str, str | None]:
+def _classify_http(http_status: int) -> tuple[str, str | None]:
     if http_status in BLOCKED_HTTP:
         return "blocked", f"blocked (HTTP {http_status})"
     if http_status >= 400:
         return "failed", f"HTTP {http_status}"
-    return "ok", None
+    return "ok", None  # HTTP 层 ok;内容层由 _gate 再判
 
 
-def _fetch_sync(url: str, timeout_s: float, impersonate: str | None) -> FetchResult:
+def _gate(resp, do_purify: bool, tier: str, fetched_at: str) -> FetchResult:
+    """HTTP 分类 + 内容闸门(design/05):HTTP ok 后净化,拿不到正文 → no_content。
+    净化前移进抓取层,好让升级链依据"有没有正文"而非仅 HTTP 决定是否升级。"""
+    http_status, err = _classify_http(resp.status)
+    if http_status != "ok":
+        return FetchResult(resp.url if hasattr(resp, "url") else "", http_status,
+                           http_status=resp.status, fetched_at=fetched_at, error=err, tier=tier)
+    url = str(getattr(resp, "url", ""))
+    if not do_purify:  # 用户要 raw HTML,不走内容闸门
+        status, content, purified, wc = purifier.raw_html(resp.body)
+    else:
+        status, content, purified, wc = purifier.extract_gated(
+            resp.body, url, config.MIN_CONTENT_CHARS)
+    error = None if status == "ok" else (
+        f"no usable content (HTTP {resp.status}, extracted "
+        f"{wc if wc is not None else 0} chars < {config.MIN_CONTENT_CHARS}); "
+        f"likely shell/anti-crawl/unrendered SPA")
+    return FetchResult(url, status, http_status=resp.status, content=content,
+                       purified=purified, word_count=wc, fetched_at=fetched_at,
+                       error=error, tier=tier)
+
+
+def _fetch_sync(url: str, timeout_s: float, impersonate: str | None, do_purify: bool) -> FetchResult:
     fetched_at = _now_iso()
     try:
         # retries=1:关掉 Scrapling 内置 3 连试(否则线程内最坏 3×timeout,
-        # 外层 wait_for 兜不住);失败重试语义留给调用方/二版升级链。
+        # 外层 wait_for 兜不住);失败重试语义留给调用方/升级链。
         resp = Fetcher.get(
             url,
             timeout=timeout_s,
@@ -79,16 +105,15 @@ def _fetch_sync(url: str, timeout_s: float, impersonate: str | None) -> FetchRes
     except Exception as e:  # 单 URL 任何异常都只影响自己这条占位
         return FetchResult(url, "failed", fetched_at=fetched_at,
                            error=f"{type(e).__name__}: {e}")
-
-    status_label, error = _classify(resp.status)
-    body = resp.body if status_label == "ok" else None
-    return FetchResult(url, status_label, http_status=resp.status, body=body,
-                       fetched_at=fetched_at, error=error)
+    fr = _gate(resp, do_purify, "static", fetched_at)
+    fr.url = fr.url or url  # resp.url 缺失时回落传入 url
+    return fr
 
 
-def _fetch_browser_sync(url: str, timeout_s: float, tier: str) -> FetchResult:
+def _fetch_browser_sync(url: str, timeout_s: float, tier: str, do_purify: bool) -> FetchResult:
     """浏览器档(dynamic=playwright chromium / stealthy=patchright 反检测)。
     Scrapling 浏览器 API 的 timeout 单位是毫秒(静态档才是秒)。retries=1 预算可控。
+    渲染完的 HTML 走同一内容闸门:SPA 渲出正文 → ok;仍空 → no_content。
 
     **本版不开 solve_cloudflare**:其 vendor 实现(_stealth.py)是不受 timeout
     约束、不可中断的无上限循环,run_in_executor 又杀不掉线程 → 线程泄漏(审查确认的
@@ -105,10 +130,9 @@ def _fetch_browser_sync(url: str, timeout_s: float, tier: str) -> FetchResult:
         first_line = str(e).split("\n")[0][:200]  # playwright 错误带多行 Call log,只留首行
         return FetchResult(url, "failed", fetched_at=fetched_at, tier=tier,
                            error=f"{type(e).__name__}: {first_line}")
-    status_label, error = _classify(resp.status)
-    body = resp.body if status_label == "ok" else None
-    return FetchResult(url, status_label, http_status=resp.status, body=body,
-                       fetched_at=fetched_at, error=error, tier=tier)
+    fr = _gate(resp, do_purify, tier, fetched_at)
+    fr.url = fr.url or url
+    return fr
 
 
 def _attempt_summary(fr: FetchResult) -> str:
@@ -116,7 +140,7 @@ def _attempt_summary(fr: FetchResult) -> str:
 
 
 async def _run_browser_tier(
-    url: str, tier: str, browser_semaphore: asyncio.Semaphore
+    url: str, tier: str, browser_semaphore: asyncio.Semaphore, do_purify: bool
 ) -> FetchResult:
     """跑一档浏览器抓取。两道闸:
     - browser_semaphore(每请求):限单请求同时占用的浏览器升级数,防跨请求垄断(审查 medium)
@@ -130,7 +154,7 @@ async def _run_browser_tier(
     async with browser_semaphore:
         await _BROWSER_GATE.acquire()
         fut = loop.run_in_executor(_BROWSER_EXECUTOR, _fetch_browser_sync,
-                                   url, timeout_s, tier)
+                                   url, timeout_s, tier, do_purify)
         fut.add_done_callback(lambda _f: _BROWSER_GATE.release())
         try:
             return await asyncio.wait_for(asyncio.shield(fut), timeout=timeout_s + 15)
@@ -153,11 +177,13 @@ async def fetch_one(
     timeout_s: float,
     impersonate: str | None,
     escalate: bool = True,
+    purify: bool = True,
     browser_semaphore: asyncio.Semaphore | None = None,
 ) -> FetchResult:
-    """三档升级链:static → (blocked|failed 时) dynamic → (blocked|failed 时) stealthy。
-    2026-07-07 拍板:blocked+failed 都触发升级;timeout 不升级(浏览器重试只会翻倍等待)。
-    任一档 ok 即返回该档结果;走完仍失败时,error 里保留完整升级历史(可溯源)。
+    """三档升级链 + 内容闸门:static → (blocked|failed|no_content 时) dynamic →
+    (同上) stealthy。2026-07-07 拍板:blocked+failed 触发升级;新增 no_content(HTTP ok
+    但没净化出正文,如 SPA 空壳)也触发——升 dynamic 用 chromium 渲染。timeout 不升级。
+    任一档拿到正文(ok)即返回;走完仍无正文时 error 保留完整升级历史(可溯源)。
     browser_semaphore 为空时新建一个(独立调用/测试用);编排器会传共享的每请求闸。"""
     if browser_semaphore is None:
         browser_semaphore = asyncio.Semaphore(config.REQUEST_BROWSER_CONCURRENCY)
@@ -167,7 +193,7 @@ async def fetch_one(
             # 外层兜底超时 = curl 超时 + 5s 余量;正常情况 curl 先到点
             result = await asyncio.wait_for(
                 loop.run_in_executor(
-                    _FETCH_EXECUTOR, _fetch_sync, url, timeout_s, impersonate
+                    _FETCH_EXECUTOR, _fetch_sync, url, timeout_s, impersonate, purify
                 ),
                 timeout=timeout_s + 5,
             )
@@ -175,12 +201,12 @@ async def fetch_one(
             result = FetchResult(url, "timeout", fetched_at=_now_iso(),
                                  error=f"hard timeout after {timeout_s + 5}s (outer wait_for)")
 
-    if not escalate or result.status not in ("blocked", "failed"):
+    if not escalate or result.status not in _ESCALATE_ON:
         return result
 
     history = [_attempt_summary(result)]
     for tier in ("dynamic", "stealthy"):
-        result = await _run_browser_tier(url, tier, browser_semaphore)
+        result = await _run_browser_tier(url, tier, browser_semaphore, purify)
         if result.status == "ok":
             return result
         history.append(_attempt_summary(result))

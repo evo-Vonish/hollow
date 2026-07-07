@@ -4,10 +4,13 @@
 抓取模式(mode,docs/design/05):fast 超召回、先到先得凑够 top_n 条 ok 即砍其余;
 balanced/thorough 爬完候选池每条。
 
+内容闸门(design/05):fetch_status=ok 表示**真拿到正文**;HTTP 2xx 但没净化出正文
+(空壳/反爬/SPA)= no_content,不算成功、不计入 target,fast 会继续拉池子补位。
+
 不变量(契约):
-  fetch.requested == len(items) == ok+failed+timeout+blocked   (每条 item 有状态)
-  fetch.pool      == fetch.requested + fetch.cancelled          (候选无一静默丢弃)
-  fetch.ok        <= fetch.target                               (够了就停)
+  fetch.requested == len(items) == ok+failed+timeout+blocked+no_content  (每条 item 有状态)
+  fetch.pool      == fetch.requested + fetch.cancelled                   (候选无一静默丢弃)
+  fetch.ok        <= fetch.target                                        (够了就停)
 被丢弃的候选显式计入 cancelled + stopped_reason,不静默消失。
 """
 import asyncio
@@ -17,7 +20,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from api import config, fetcher, purifier, searx_client
+from api import config, fetcher, searx_client
 from api.models import (
     EngineFailure,
     FetchMeta,
@@ -90,17 +93,10 @@ def _result_engine(r: dict) -> str | None:
 
 
 def _assemble_item(candidate: dict, fr: fetcher.FetchResult, req: ResearchRequest) -> ResearchItem:
-    content: str | None = None
-    purified: bool | None = None
-    word_count: int | None = None
-    if fr.status == "ok" and fr.body is not None:
-        if req.purify:
-            content, purified, word_count = purifier.purify(fr.body, fr.url)
-        else:
-            content, purified, word_count = purifier.raw_html(fr.body)
-        # 单条文本量截断(word_count 保留净化全文长度,截断只作用于载荷)
-        if content is not None and req.max_content_chars and len(content) > req.max_content_chars:
-            content = content[:req.max_content_chars] + "…(truncated)"
+    # 净化 + 内容闸门已在抓取层完成(fr.content/purified/word_count);这里只做载荷截断
+    content = fr.content
+    if content is not None and req.max_content_chars and len(content) > req.max_content_chars:
+        content = content[:req.max_content_chars] + "…(truncated)"
     return ResearchItem(
         url=_safe_str(candidate.get("url")) or fr.url,
         title=_safe_str(candidate.get("title")),
@@ -110,8 +106,8 @@ def _assemble_item(candidate: dict, fr: fetcher.FetchResult, req: ResearchReques
         fetch_status=fr.status,  # type: ignore[arg-type]
         engine_used=fr.tier,
         http_status=fr.http_status,
-        word_count=word_count,
-        purified=purified,
+        word_count=fr.word_count,
+        purified=fr.purified,
         content=content,
         error=fr.error,
     )
@@ -141,6 +137,7 @@ async def _fetch_and_assemble(
         timeout_s=timeout_s,
         impersonate=config.IMPERSONATE,
         escalate=escalate,
+        purify=req.purify,
         browser_semaphore=browser_semaphore,
     )
     fetch_done = time.perf_counter()
@@ -226,7 +223,7 @@ async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
     ]
 
     items: list[ResearchItem] = []
-    counts = {"ok": 0, "failed": 0, "timeout": 0, "blocked": 0}
+    counts = {"ok": 0, "failed": 0, "timeout": 0, "blocked": 0, "no_content": 0}
     cancelled = 0
     last_fetch_done = t0
     stopped_reason = "pool_exhausted"
@@ -325,6 +322,7 @@ async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
                     failed=counts["failed"],
                     timeout=counts["timeout"],
                     blocked=counts["blocked"],
+                    no_content=counts["no_content"],
                     cancelled=cancelled,
                     stopped_reason=stopped_reason,
                     took_ms=fetch_took_ms,
