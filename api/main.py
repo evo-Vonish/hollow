@@ -7,10 +7,10 @@
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 
-from api import config, fetcher, orchestrator
+from api import auth, config, fetcher, orchestrator
 from api.models import ResearchRequest, ResearchResponse
 from api.responses import UTF8JSONResponse
 from api.searx_client import InvalidQueryError, SearxUnavailableError
@@ -67,7 +67,10 @@ async def healthz():
 
 
 @app.post("/v0/research", response_model=ResearchResponse)
-async def research(req: ResearchRequest) -> ResearchResponse:
+async def research(req: ResearchRequest, request: Request):
+    denied = auth.auth_error(request)  # 安全批:/v0 也受 HOLLOW_API_KEY 保护(此前完全敞开)
+    if denied:
+        return denied
     try:
         return await orchestrator.run_research(req, app.state.http)
     except InvalidQueryError as e:  # 客户端输入问题,不是上游故障

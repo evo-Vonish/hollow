@@ -72,25 +72,13 @@ MODE_PRESETS: dict[str, dict] = {
 DEFAULT_MODE: str = "balanced"
 POOL_MAX: int = 24  # 候选池封顶(fast 模式 top_n×factor 的上限)
 
-# 抓取代理:显式配置优先,否则跟随系统环境变量(curl_cffi trust_env 同款语义)
-FETCH_PROXY: str | None = (
-    os.environ.get("HOLLOW_FETCH_PROXY")
-    or os.environ.get("HTTPS_PROXY")
-    or os.environ.get("HTTP_PROXY")
-    or None
-)
+# 抓取出站代理由 curl_cffi 的 trust_env(默认)从环境变量 HTTPS_PROXY/HTTP_PROXY 自动读取,
+# 无需在此显式配置。(旧的 FETCH_PROXY 是死代码 + 旧的 FOLLOW_REDIRECTS 会被代理env静默关掉
+# SSRF 防护——安全批已移除;重定向改由 fetcher 手动逐跳 + netguard 校验,见 api/netguard.py。)
 
-# 重定向策略(2026-07-06 实测,docs/research/2026-07-06-local-env-verification.md):
-# curl_cffi 的 "safe" 模式(SSRF 防护)检查的是"这一跳要连接的 IP"——经 localhost
-# 代理时每一跳连的都是 127.0.0.1,导致一切重定向被误杀(https->https 也死)。
-# 走代理 → True(代理即网络边界);直连 → "safe"(真实 SSRF 防护,网关抓任意 URL)。
-_fr = os.environ.get("HOLLOW_FOLLOW_REDIRECTS", "").strip().lower()
-if _fr == "all":
-    FOLLOW_REDIRECTS: bool | str = True
-elif _fr == "safe":
-    FOLLOW_REDIRECTS = "safe"
-else:
-    FOLLOW_REDIRECTS = True if FETCH_PROXY else "safe"
+# 安全批(2026-07-14):抓取目的地与体量硬约束
+MAX_REDIRECTS: int = _env_int("HOLLOW_MAX_REDIRECTS", 5)          # 手动跟随的最大重定向跳数
+MAX_FETCH_BYTES: int = _env_int("HOLLOW_MAX_FETCH_BYTES", 20_000_000)  # 单条响应体上限(20MB)
 
 # 默认引擎集(2026-07-06 拍板:国际+国内"都来")。
 # 前提:本地开发时系统代理开启,否则被墙引擎(duckduckgo/wikipedia)会白等超时,

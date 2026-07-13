@@ -27,7 +27,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from api import config, orchestrator, registry
+from api import auth, config, orchestrator, registry
 from api.models import ResearchItem, ResearchRequest, ResearchResponse, SearchMeta
 from api.responses import UTF8JSONResponse
 from api.searx_client import InvalidQueryError, SearxUnavailableError
@@ -48,12 +48,7 @@ def _error(status: int, message: str, err_type: str, code: str,
 
 
 def _check_auth(request: Request) -> JSONResponse | None:
-    if not config.API_KEY:
-        return None
-    if request.headers.get("authorization", "") != f"Bearer {config.API_KEY}":
-        return _error(401, "Incorrect API key provided.",
-                      "invalid_request_error", "invalid_api_key")
-    return None
+    return auth.auth_error(request)  # 共享 + 常量时间比较(api/auth.py)
 
 
 # ---------- 引擎选取(search 与 research 共用) ----------
