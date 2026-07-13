@@ -57,6 +57,8 @@
 不变量:`requested == len(items) == ok+failed+timeout+blocked`;`pool == requested + cancelled`;`ok <= target`。
 `stopped_reason` ∈ {`target_reached`, `pool_exhausted`, `budget`},被砍候选显式计入 `cancelled`,禁止静默丢弃。
 
+> **相关性重排(2026-07-14,搜索质量批)**:搜索与抓取之间插了一层零成本词汇重排(api/rerank.py):按 (query,title,snippet) 相关性排候选(标题命中≫正文,SearXNG 原分只当兜底 prior),纯噪声(标题零命中+snippet 空,如撤稿空壳)不进抓取池。每条 research.item 带 `relevance`(重排分)与 `rank`(最终位次);最终 items 先 ok 后其它、组内按 relevance 降序,故 `items[0]` 是最相关的可读结果。`/v1/search` 结果也按 relevance 排序并带该字段。`score` 仍是 SearXNG 原分(可溯源)。
+
 ### POST /v1/research + `"stream": true`(SSE)
 
 ```

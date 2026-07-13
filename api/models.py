@@ -48,12 +48,14 @@ class ResearchItem(BaseModel):
     score: float | None = None
     fetched_at: str | None = None
     fetch_status: FetchStatus
-    engine_used: str = "static"  # 本期恒为 static;二版起 static/dynamic/stealthy
+    engine_used: str = "static"  # static | dynamic | stealthy(命中档位)
     http_status: int | None = None
     word_count: int | None = None
     purified: bool | None = None
     content: str | None = None
     error: str | None = None
+    relevance: float | None = None  # 词汇重排分(见 rerank.py);越大越相关
+    rank: int | None = None         # 按 relevance 排序后的最终位次(0 起),非抓取完成顺序
 
 
 class SearchMeta(BaseModel):

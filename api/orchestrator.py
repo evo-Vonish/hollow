@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from api import config, fetcher, searx_client
+from api import config, fetcher, rerank, searx_client
 from api.models import (
     EngineFailure,
     FetchMeta,
@@ -50,6 +50,8 @@ def select_candidates(results: list[dict], top_n: int) -> list[dict]:
     picked: list[dict] = []
     for r in results:
         if not isinstance(r, dict):
+            continue
+        if r.get("_degenerate"):  # 纯噪声(标题零命中+snippet 空,如撤稿空壳)不进抓取池
             continue
         url = r.get("url")
         if not isinstance(url, str) or not url:
@@ -110,6 +112,7 @@ def _assemble_item(candidate: dict, fr: fetcher.FetchResult, req: ResearchReques
         purified=fr.purified,
         content=content,
         error=fr.error,
+        relevance=_safe_float(candidate.get("_rel")),
     )
 
 
@@ -197,7 +200,10 @@ async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
     # ② 按 mode 解出有效参数,选候选池(fast 会超召回)
     escalate, timeout_s, pool_size = resolve_effective(req)
     target_ok = req.fetch_top_n
-    candidates = select_candidates(outcome.results, pool_size)
+    # 词汇重排:按 (query,title,snippet) 相关性排候选,再取池——否则 SearXNG 的
+    # position 分把离题/空壳结果排在前面,fast 的凑够即停会系统性抓到它们(搜索质量批)
+    ranked = rerank.rerank(req.q, outcome.results)
+    candidates = select_candidates(ranked, pool_size)
     search_meta = SearchMeta(
         engines_requested=engines,
         engines_used=outcome.engines_used,
@@ -305,6 +311,17 @@ async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
     # took_ms = 抓取+抽取阶段(至最后一条 fetch_one 完成);组装截断极轻不计入。
     # 内容闸门后抽取前移进抓取层,故此口径含净化(design/05,审查确认的口径变化)
     fetch_took_ms = int((last_fetch_done - t0) * 1000)
+
+    # 最终 items 排序(而非抓取完成顺序),赋 rank(搜索质量批):
+    # 先 ok(真拿到正文)后其它,同组内按相关性降序,确定性 tiebreak。
+    # 这样 items[0] 是"最相关的可读结果",空壳/被挡占位排后面(仍在,底线②)。
+    # SSE 的 item.completed 仍按完成顺序实时推;这里排的是汇总/非流式响应的 items。
+    items.sort(key=lambda it: (0 if it.fetch_status == "ok" else 1,
+                               -(it.relevance if it.relevance is not None else -1.0),
+                               -(it.score if it.score is not None else -1.0),
+                               it.url or ""))
+    for _rank, it in enumerate(items):
+        it.rank = _rank
 
     yield (
         "done",

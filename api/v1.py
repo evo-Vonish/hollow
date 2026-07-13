@@ -27,7 +27,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from api import auth, config, orchestrator, registry
+from api import auth, config, orchestrator, registry, rerank
 from api.models import ResearchItem, ResearchRequest, ResearchResponse, SearchMeta
 from api.responses import UTF8JSONResponse
 from api.searx_client import InvalidQueryError, SearxBadRequestError, SearxUnavailableError
@@ -121,7 +121,7 @@ async def create_search(body: SearchCreate, request: Request):
         return _error(502, str(e), "api_error", "upstream_unavailable")
 
     results = []
-    for r in outcome.results:
+    for r in rerank.rerank(body.query, outcome.results):  # 按相关性排序(否则 position 分把空壳排前)
         if not isinstance(r, dict):
             continue
         url = r.get("url")
@@ -132,7 +132,8 @@ async def create_search(body: SearchCreate, request: Request):
             "url": url,
             "title": orchestrator._safe_str(r.get("title")),
             "engine": orchestrator._result_engine(r),
-            "score": orchestrator._safe_float(r.get("score")),
+            "score": orchestrator._safe_float(r.get("score")),   # SearXNG 原分(可溯源)
+            "relevance": round(r.get("_rel", 0.0), 4),           # 词汇重排分(排序依据)
             "snippet": orchestrator._safe_str(r.get("content")),
         })
     ledger = SearchMeta(

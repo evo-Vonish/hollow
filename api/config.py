@@ -53,6 +53,12 @@ FETCH_TIMEOUT: float = _env_float("FETCH_TIMEOUT", 15.0)
 FETCH_TOP_N_DEFAULT: int = 5
 FETCH_TOP_N_MAX: int = 20  # 2026-07-06 拍板:8→20(场景多选并集召回更大,时间预算兜底)
 
+# 词汇重排权重(2026-07-14,搜索质量批;api/rerank.py)。标题命中远重于正文,
+# SearXNG 原分只当兜底 prior。⚠️ 待校准(底线④):这组是起点,需按真实 query 调。
+RERANK_W_TITLE: float = _env_float("HOLLOW_RERANK_W_TITLE", 3.0)
+RERANK_W_SNIPPET: float = _env_float("HOLLOW_RERANK_W_SNIPPET", 1.0)
+RERANK_W_PRIOR: float = _env_float("HOLLOW_RERANK_W_PRIOR", 0.5)
+
 # 内容闸门(2026-07-07):净化出的正文低于此字符数 = 空壳/反爬页/无正文 → no_content。
 # "成功"从"HTTP 2xx"重定义为"真拿到正文":no_content 不算 ok、不占结果位、触发升级链渲染。
 # ⚠️ 阈值需校准后上线(底线4):200 是起点——空壳提取为空(远低于),真文章通常 500+,
