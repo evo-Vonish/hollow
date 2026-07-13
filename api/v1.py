@@ -11,23 +11,26 @@
 端点(2026-07-06 拍板:搜索与研究拆两个端点,不做 fetch 开关):
   POST /v1/search      纯搜索召回:秒级返回 URL/标题/摘要 + 搜索账目,不抓全文
   POST /v1/research    搜索 + 并行抓取 + 净化全套(stream 可选)
+  POST /v1/fetch       按 URL 直取:抓取+净化,不经搜索(2026-07-14,审计催生 + vonish 集成)
   GET  /v1/engines     引擎注册表(343 源,支持 status/scene/type/tier 过滤)
   GET  /v1/scenes      场景 -> 默认引擎集
 
 引擎选取:scenes(多选,并集) ∪ engines(自定义点名) ,都不传用网关默认集;
 点名拒 L1 removed 与未知名(SearXNG 对无效 engines 会静默回退默认集,必须挡住)。
 """
+import asyncio
 import json
 import time
 import uuid
 from typing import Literal
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from api import auth, config, orchestrator, registry, rerank
+from api import auth, config, fetcher, orchestrator, registry, rerank
 from api.models import ResearchItem, ResearchRequest, ResearchResponse, SearchMeta
 from api.responses import UTF8JSONResponse
 from api.searx_client import InvalidQueryError, SearxBadRequestError, SearxUnavailableError
@@ -298,6 +301,107 @@ async def create_research(body: ResearchCreate, request: Request):
 
     return StreamingResponse(_sse(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache"})
+
+
+# ---------- POST /v1/fetch(按 URL 直取:抓取+净化,不经搜索) ----------
+# 2026-07-14:审计"最高投入产出比"项 + vonish 集成需要(search 拿 URL → fetch 取正文)。
+# 复用 fetcher.fetch_one 全套:三档升级链、内容闸门、netguard SSRF 防护、大小上限。
+
+class FetchCreate(BaseModel):
+    # 借 OpenAI embeddings 的 input 惯例:单个字符串或数组均可(≤ FETCH_URLS_MAX)
+    urls: str | list[str] = Field(description="要抓取的 URL,单个或数组")
+    mode: Literal["fast", "balanced", "thorough"] = Field(
+        default=config.DEFAULT_MODE,
+        description="只取 mode 的 escalate/timeout 预设(直取无候选池概念)")
+    timeout: float | None = Field(default=None, gt=0, le=60,
+                                  description="单 URL 抓取超时(秒);缺省跟随 mode")
+    escalate: bool | None = Field(default=None,
+                                  description="三档升级链;缺省跟随 mode(fast 关/其余开)")
+    purify: bool = True
+    max_content_chars: int | None = Field(default=None, ge=100)
+    concurrency: int = Field(default=config.FETCH_CONCURRENCY, ge=1,
+                             le=config.REQUEST_CONCURRENCY_MAX)
+    model_config = ConfigDict(extra="allow")  # 未知参数收进 model_extra 后回报,不静默吞掉
+
+
+@router.post("/fetch")
+async def create_fetch(body: FetchCreate, request: Request):
+    denied = _check_auth(request)
+    if denied:
+        return denied
+    submitted = [body.urls] if isinstance(body.urls, str) else list(body.urls)
+    if not submitted:
+        return _error(400, "urls must contain at least one URL.",
+                      "invalid_request_error", "invalid_parameter", "urls")
+    if len(submitted) > config.FETCH_URLS_MAX:
+        return _error(400, f"Too many URLs: {len(submitted)} > {config.FETCH_URLS_MAX}.",
+                      "invalid_request_error", "invalid_parameter", "urls")
+    # 结构性错误(非 http/https 绝对 URL)= 客户端 bug → 400 指明哪条;
+    # 运行时拦截(netguard 内网/抓取失败)→ item 显式状态(与 research 一致,底线②)
+    for i, u in enumerate(submitted):
+        try:
+            parts = urlsplit(u)
+        except ValueError:
+            parts = None
+        if parts is None or parts.scheme not in ("http", "https") or not parts.netloc:
+            return _error(400, f"urls[{i}] is not an absolute http(s) URL: {u[:200]!r}",
+                          "invalid_request_error", "invalid_url", "urls")
+    # 去重保序;移除的重复显式入账(deduped),不静默消失
+    unique = list(dict.fromkeys(submitted))
+    deduped = len(submitted) - len(unique)
+
+    escalate, timeout_s = orchestrator.resolve_mode_fetch(
+        body.mode, body.timeout, body.escalate)
+    semaphore = asyncio.Semaphore(body.concurrency)
+    browser_semaphore = asyncio.Semaphore(config.REQUEST_BROWSER_CONCURRENCY)
+    t0 = time.perf_counter()
+    results = await asyncio.gather(*[
+        fetcher.fetch_one(u, semaphore=semaphore, timeout_s=timeout_s,
+                          impersonate=config.IMPERSONATE, escalate=escalate,
+                          purify=body.purify, browser_semaphore=browser_semaphore)
+        for u in unique
+    ], return_exceptions=True)
+    took_ms = int((time.perf_counter() - t0) * 1000)
+
+    counts = {"ok": 0, "failed": 0, "timeout": 0, "blocked": 0, "no_content": 0}
+    items: list[dict] = []
+    for u, fr in zip(unique, results):
+        if isinstance(fr, BaseException):  # fetch_one 契约上不抛;防御收敛,单条坏不 500 整单
+            fr = fetcher.FetchResult(u, "failed", error=f"{type(fr).__name__}: {fr}")
+        content = fr.content
+        if content is not None and body.max_content_chars and len(content) > body.max_content_chars:
+            content = content[:body.max_content_chars] + "…(truncated)"
+        item = {
+            "object": "fetch.item",
+            "url": u,  # 客户端点名的原始 URL(对位其意图);条目顺序 == 输入顺序
+            "fetch_status": fr.status,
+            "engine_used": fr.tier,
+            "http_status": fr.http_status,
+            "word_count": fr.word_count,
+            "purified": fr.purified,
+            "content": content,
+            "error": fr.error,
+            "fetched_at": fr.fetched_at,
+        }
+        if fr.url and fr.url != u:
+            item["final_url"] = fr.url  # 重定向后的最终落点(可溯源,底线③)
+        counts[fr.status] = counts.get(fr.status, 0) + 1
+        items.append(item)
+
+    # 不变量:requested == len(items) == ok+failed+timeout+blocked+no_content;
+    #         submitted == requested + deduped
+    resp = {
+        "id": f"ftch_{uuid.uuid4().hex}",
+        "object": "fetch",
+        "created": int(time.time()),
+        "items": items,
+        "fetch": {"submitted": len(submitted), "requested": len(unique),
+                  "deduped": deduped, **counts, "took_ms": took_ms},
+    }
+    ignored = _ignored(body)
+    if ignored:  # 未知/拼错参数如实回报(底线②)
+        resp["ignored_params"] = ignored
+    return resp
 
 
 # ---------- GET /v1/engines / GET /v1/scenes ----------

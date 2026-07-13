@@ -52,6 +52,7 @@ FETCH_CONCURRENCY_GLOBAL: int = _env_int("FETCH_CONCURRENCY_GLOBAL", 16)
 FETCH_TIMEOUT: float = _env_float("FETCH_TIMEOUT", 15.0)
 FETCH_TOP_N_DEFAULT: int = 5
 FETCH_TOP_N_MAX: int = 20  # 2026-07-06 拍板:8→20(场景多选并集召回更大,时间预算兜底)
+FETCH_URLS_MAX: int = _env_int("HOLLOW_FETCH_URLS_MAX", 10)  # /v1/fetch 单次点名 URL 上限
 
 # 词汇重排权重(2026-07-14,搜索质量批;api/rerank.py)。标题命中远重于正文,
 # SearXNG 原分只当兜底 prior。⚠️ 待校准(底线④):这组是起点,需按真实 query 调。

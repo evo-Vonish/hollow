@@ -72,6 +72,36 @@ data: [DONE]
 搜索阶段错误发生在开流前,走标准 HTTP 错误;开流后每条抓完即 item 事件;
 够了/预算到的候选不产 item,计入 completed 的 `cancelled`。客户端断连时服务端取消未完成任务。
 
+### POST /v1/fetch —— 按 URL 直取:抓取 + 净化,不经搜索(2026-07-14)
+
+审计"最高投入产出比"项 + vonish 集成需要(典型两跳:`/v1/search` 拿 URL → 客户端挑选 → `/v1/fetch` 取正文)。
+复用 research 的全套抓取设施:三档升级链、内容闸门、SSRF netguard、20MB 大小上限。
+
+```jsonc
+{
+  "urls": "https://example.com/a",   // 或数组(≤10,HOLLOW_FETCH_URLS_MAX);借 OpenAI embeddings input 惯例
+  "mode": "balanced",                // 只取 escalate/timeout 预设(直取无候选池,fast 的超召回不适用)
+  "timeout": null, "escalate": null, // 显式传值覆盖 mode 预设(同 research)
+  "purify": true, "max_content_chars": null, "concurrency": 5
+}
+```
+
+响应:`{"id":"ftch_…","object":"fetch","created":…,"items":[{"object":"fetch.item",…}],"fetch":{账目}}`。
+
+- `items[]` **按输入顺序**返回(用户点名的顺序即意图顺序,无 relevance/rank 概念);每条
+  `url` 是点名的原始 URL,重定向后落点 ≠ 输入时另给 `final_url`(可溯源);其余字段同 research.item
+  (fetch_status / engine_used / http_status / word_count / purified / content / error / fetched_at)。
+- 账目:`{submitted, requested, deduped, ok, failed, timeout, blocked, no_content, took_ms}`。
+  不变量:`requested == len(items) == ok+failed+timeout+blocked+no_content`;`submitted == requested + deduped`
+  (重复 URL 去重保序,移除数显式入账,不静默消失)。
+- 错误分界:**结构性错误**(非 http/https 绝对 URL → 400 `invalid_url` 指明第几条;超上限 → 400
+  `invalid_parameter`)是客户端 bug,拒整单;**运行时拦截**(netguard 内网目标 → `blocked`,抓取失败
+  → `failed`)进 item 显式状态,与 research 一致(底线②)。
+- **不挡** PDF 等扩展名(research 的候选跳过是自动选择;这里是用户显式点名,尊重意图,抓不出正文
+  就如实 `no_content`;PDF 专用通道记待办)。
+- 本版无 `budget`(≤10 条且单 URL timeout 已兜底;最坏时长 ≈ ceil(10/concurrency)×timeout×档数)、
+  无 `stream`(vonish 场景不需要);都记待办,传了会进 `ignored_params` 如实回报。
+
 ### GET /v1/engines · GET /v1/scenes
 
 注册表直出:`?status=pool|default|removed`、`?scene=zh`、`?type=web`、`?tier=T0` 过滤;
@@ -92,6 +122,7 @@ scenes 现有 9 个:general / knowledge / dev / academic / news / social / image
 | 400 | `engine_removed` / `unknown_engine` | 点名了 L1 源 / 注册表外的名字 |
 | 400 | `unknown_scene` | scenes 里有注册表外的场景 |
 | 400 | `invalid_search_param` | SearXNG 判定透传参数非法(如 `time_range`/`language` 取值错);此前误报 502 |
+| 400 | `invalid_url` | /v1/fetch 点名了非 http(s) 绝对 URL(消息指明第几条) |
 | 401 | `invalid_api_key` | HOLLOW_API_KEY 已设置且 Bearer 不匹配 |
 | 502 | `upstream_unavailable` | SearXNG 不可达/5xx/非 JSON(真上游故障) |
 

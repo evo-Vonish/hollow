@@ -116,12 +116,20 @@ def _assemble_item(candidate: dict, fr: fetcher.FetchResult, req: ResearchReques
     )
 
 
+def resolve_mode_fetch(mode: str, timeout: float | None,
+                       escalate: bool | None) -> tuple[bool, float]:
+    """mode 预设 + 显式覆盖 → (escalate, per_url_timeout)。/v1/fetch 与 research 共用
+    (fetch 按 URL 直取、无候选池,只取预设的这两项)。"""
+    preset = config.MODE_PRESETS.get(mode, config.MODE_PRESETS[config.DEFAULT_MODE])
+    return (preset["escalate"] if escalate is None else escalate,
+            preset["timeout"] if timeout is None else timeout)
+
+
 def resolve_effective(req: ResearchRequest) -> tuple[bool, float, int]:
     """按 mode 预设 + 显式覆盖,解出 (escalate, per_url_timeout, pool_size)。
     escalate/fetch_timeout 为 None 时取 mode 预设,显式传值则覆盖。"""
+    escalate, timeout_s = resolve_mode_fetch(req.mode, req.fetch_timeout, req.escalate)
     preset = config.MODE_PRESETS.get(req.mode, config.MODE_PRESETS[config.DEFAULT_MODE])
-    escalate = preset["escalate"] if req.escalate is None else req.escalate
-    timeout_s = preset["timeout"] if req.fetch_timeout is None else req.fetch_timeout
     pool_size = min(req.fetch_top_n * preset["pool_factor"], config.POOL_MAX)
     return escalate, timeout_s, pool_size
 
