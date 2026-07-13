@@ -341,6 +341,7 @@ async def create_fetch(body: FetchCreate, request: Request):
     for i, u in enumerate(submitted):
         try:
             parts = urlsplit(u)
+            _ = parts.port  # 强制求值:端口越界/非数字时 urlsplit 惰性抛 ValueError(审查 LOW)
         except ValueError:
             parts = None
         if parts is None or parts.scheme not in ("http", "https") or not parts.netloc:

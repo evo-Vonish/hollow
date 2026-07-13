@@ -73,10 +73,13 @@ def vet_url(url: str) -> str | None:
     # 2001::/23 地址(Python 判为 is_private)造成误杀;且这类机器实际走 IPv4 抓取。
     # 残留:纯 IPv6 内网主机名不被拦(次要向量,记入待办)。
     try:
-        infos = socket.getaddrinfo(host, parts.port or (443 if parts.scheme == "https" else 80),
-                                   family=socket.AF_INET, proto=socket.IPPROTO_TCP)
-    except socket.gaierror:
-        return None  # 解析不了交给抓取层报网络错误,不在这里拦(避免误杀临时 DNS 抖动)
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+    except ValueError:
+        return "invalid port in URL"  # 坏端口在此干净拒绝,不让 ValueError 冒泡成崩溃(审查 LOW)
+    try:
+        infos = socket.getaddrinfo(host, port, family=socket.AF_INET, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, UnicodeError):
+        return None  # 解析不了/主机名无法 IDNA 编码:交抓取层报网络错误,不在这里崩(避免误杀 DNS 抖动)
     for info in infos:
         addr = info[4][0]
         try:
