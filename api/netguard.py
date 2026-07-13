@@ -18,6 +18,27 @@ from urllib.parse import urlsplit
 _ALLOW = {h.strip().lower() for h in os.environ.get("HOLLOW_ALLOW_INTERNAL_HOSTS", "").split(",") if h.strip()}
 
 
+def _as_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """把 host 归一成 IP —— 覆盖 curl/浏览器接受的一切 IPv4 数字写法:
+    标准点分、十进制整数(2130706433)、十六进制(0x7f000001)、八进制(0177.0.0.1)、
+    短式(127.1)、IPv6 字面量。识别不出(真域名)返回 None,交给上层 DNS 解析。"""
+    try:
+        return ipaddress.ip_address(host)  # 标准 v4/v6 字面量
+    except ValueError:
+        pass
+    try:
+        return ipaddress.IPv4Address(socket.inet_aton(host))  # inet_aton:短式/十六/八进制(平台 libc)
+    except OSError:
+        pass
+    try:  # 兜底:纯整数(十进制 / 0x 十六 / 0o 八)
+        val = int(host, 0) if host[:2].lower() in ("0x", "0o", "0b") else int(host)
+        if 0 <= val <= 0xFFFFFFFF:
+            return ipaddress.IPv4Address(val)
+    except (ValueError, ipaddress.AddressValueError):
+        pass
+    return None
+
+
 def _ip_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return (
         ip.is_private        # RFC1918 / IPv6 ULA fc00::/7
@@ -40,15 +61,14 @@ def vet_url(url: str) -> str | None:
     host = parts.hostname
     if not host:
         return "no host in URL"
+    host = host.rstrip(".")  # 尾点绕过(127.0.0.1. / example.com.)
     host_l = host.lower()
     if host_l in _ALLOW:
         return None
-    # 主机本身就是 IP 字面量(v4/v6):直接严格判(无需 DNS,覆盖 PoC 的 127.0.0.1/169.254.x/::1)
-    try:
-        ip = ipaddress.ip_address(host)
+    # IP 字面量(含十进制/十六/八进制/短式等一切 curl 接受的数字写法):直接严格判,不走 DNS
+    ip = _as_ip(host)
+    if ip is not None:
         return f"refused internal/reserved address {host}" if _ip_blocked(ip) else None
-    except ValueError:
-        pass
     # 主机名:只解析 IPv4(AF_INET)。不查 IPv6——Windows Teredo 会给公网域名返回合成的
     # 2001::/23 地址(Python 判为 is_private)造成误杀;且这类机器实际走 IPv4 抓取。
     # 残留:纯 IPv6 内网主机名不被拦(次要向量,记入待办)。
