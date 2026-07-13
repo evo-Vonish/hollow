@@ -82,7 +82,8 @@ data: [DONE]
   "urls": "https://example.com/a",   // 或数组(≤10,HOLLOW_FETCH_URLS_MAX);借 OpenAI embeddings input 惯例
   "mode": "balanced",                // 只取 escalate/timeout 预设(直取无候选池,fast 的超召回不适用)
   "timeout": null, "escalate": null, // 显式传值覆盖 mode 预设(同 research)
-  "purify": true, "max_content_chars": null, "concurrency": 5
+  "purify": true, "max_content_chars": null, "concurrency": 5,
+  "budget": null                     // 整单时间预算(秒,≤300);到点未完成的 URL 记 timeout(注明预算切断)
 }
 ```
 
@@ -91,16 +92,30 @@ data: [DONE]
 - `items[]` **按输入顺序**返回(用户点名的顺序即意图顺序,无 relevance/rank 概念);每条
   `url` 是点名的原始 URL,重定向后落点 ≠ 输入时另给 `final_url`(可溯源);其余字段同 research.item
   (fetch_status / engine_used / http_status / word_count / purified / content / error / fetched_at)。
-- 账目:`{submitted, requested, deduped, ok, failed, timeout, blocked, no_content, took_ms}`。
+- 账目:`{submitted, requested, deduped, ok, failed, timeout, blocked, no_content, budget_cut, took_ms}`。
   不变量:`requested == len(items) == ok+failed+timeout+blocked+no_content`;`submitted == requested + deduped`
-  (重复 URL 去重保序,移除数显式入账,不静默消失)。
+  (重复 URL 去重保序,移除数显式入账,不静默消失)。`budget_cut ⊆ timeout`(其中因整单预算切断的条数)。
 - 错误分界:**结构性错误**(非 http/https 绝对 URL → 400 `invalid_url` 指明第几条;超上限 → 400
   `invalid_parameter`)是客户端 bug,拒整单;**运行时拦截**(netguard 内网目标 → `blocked`,抓取失败
   → `failed`)进 item 显式状态,与 research 一致(底线②)。
 - **不挡** PDF 等扩展名(research 的候选跳过是自动选择;这里是用户显式点名,尊重意图,抓不出正文
   就如实 `no_content`;PDF 专用通道记待办)。
-- 本版无 `budget`(≤10 条且单 URL timeout 已兜底;最坏时长 ≈ ceil(10/concurrency)×timeout×档数)、
-  无 `stream`(vonish 场景不需要);都记待办,传了会进 `ignored_params` 如实回报。
+- 无 `stream`(vonish 场景不需要;记待办,传了进 `ignored_params` 回报)。整单时长上界由 `budget`
+  兜底;不设 `budget` 时最坏时长受**进程级浏览器闸(2)**制约而非 `concurrency`:全 blocked 的 N 条
+  各走升级链时约 ≈ ceil(N/2)×(BROWSER_TIMEOUT+15)×浏览器档数,故建议批量+可能升级时显式传 `budget`。
+
+**SSRF 加固(2026-07-14,/v1/fetch 对抗审查催生;netguard 共享给 /research)**:/v1/fetch 是首个让客户端
+直接点名任意 URL 的端点,SSRF 面被显著放大,逐条封堵:
+- **目的地校验**:每跳(初始 + 每个重定向目标)过 `netguard`——内网/环回/链路本地(含云元数据 169.254.169.254)/
+  ULA/保留段全拒;IP 字面量覆盖十进制/十六/八进制/短式/尾点等编码;主机名**双栈解析**(A+AAAA 全校验,
+  IPv4-mapped 按内嵌 v4 判)。IPv6 判定刻意只拦明确内网类别(loopback/link-local/ULA/multicast/unspecified),
+  规避 Windows Teredo 合成 2001::/23 的误杀。
+- **DNS-pin(#2)**:静态档**直调 curl_cffi + CURLOPT_RESOLVE**(Scrapling 不转发 curl_options),把主机名钉到
+  刚校验过的 IP,关掉"vet→连接"之间的 rebind 窗口;SNI/证书仍用原主机名。**仅对直连生效**——走前向代理时
+  DNS 由代理接管,钉失效(但此时客户端不解析,亦无客户端 TOCTOU;SSRF 依赖 netguard 主机名校验 + 部署层 egress)。
+- **浏览器档重定向(#1)**:Chromium 内部自跟随重定向,抓完复校 `resp.url` + 每一跳 `resp.history`,落到内网即
+  丢正文返回 `blocked`,闭合"读到云元数据/内网正文"的外泄。**残留(记待办)**:页面内 XHR/meta-refresh 到内网、
+  盲 SSRF 请求发出本身——需 `page.route` 抢先拦截,俟具备端到端测试条件(chromium + 重定向到内网的测试服务器)再上。
 
 ### GET /v1/engines · GET /v1/scenes
 

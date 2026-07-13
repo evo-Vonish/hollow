@@ -67,40 +67,56 @@ def _ip_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     )
 
 
-def vet_url(url: str) -> str | None:
-    """校验单个 URL 的目的地。放行返回 None;拒绝返回原因字符串(供 blocked 上报)。"""
+def check_and_resolve(url: str) -> tuple[str | None, str | None]:
+    """校验目的地 + 解析出 DNS-pin 用的 CURLOPT_RESOLVE 条目。返回 (reason, pin):
+      reason 非 None            → 拒绝(blocked,原因串);
+      reason None、pin 非 None  → 放行且需把 curl 钉到 pin(格式 'host:port:ip',v6 加括号);
+      reason None、pin None     → 放行且无需钉(IP 字面量本就不走 DNS;或解析不了交抓取层报错)。
+    pin 存在时钉住"vet 时解析到的那个 IP",关掉 vet→连接之间的 DNS-rebind 窗口(审查 #2)。"""
     try:
         parts = urlsplit(url)
     except ValueError:
-        return "malformed URL"
+        return "malformed URL", None
     if parts.scheme not in ("http", "https"):
-        return f"scheme {parts.scheme!r} not allowed (only http/https)"
+        return f"scheme {parts.scheme!r} not allowed (only http/https)", None
     host = parts.hostname
     if not host:
-        return "no host in URL"
+        return "no host in URL", None
     host = host.rstrip(".")  # 尾点绕过(127.0.0.1. / example.com.)
-    host_l = host.lower()
-    if host_l in _ALLOW:
-        return None
-    # IP 字面量(含十进制/十六/八进制/短式等一切 curl 接受的数字写法):直接严格判,不走 DNS
+    if host.lower() in _ALLOW:
+        return None, None
+    # IP 字面量(含十进制/十六/八进制/短式等一切 curl 接受的数字写法):直接严格判,不走 DNS/不需钉
     ip = _as_ip(host)
     if ip is not None:
-        return f"refused internal/reserved address {host}" if _ip_blocked(ip) else None
+        return (f"refused internal/reserved address {host}" if _ip_blocked(ip) else None), None
     # 主机名:解析**双栈**(AF_UNSPEC),A/AAAA 全部校验(审查 #3:只发 AAAA 的内网 IPv6
     # 主机原先漏网)。Teredo 误杀由 _ip_blocked 的 v6 校准处理(不再靠 AF_INET-only 规避)。
     try:
         port = parts.port or (443 if parts.scheme == "https" else 80)
     except ValueError:
-        return "invalid port in URL"  # 坏端口在此干净拒绝,不让 ValueError 冒泡成崩溃(审查 LOW)
+        return "invalid port in URL", None  # 坏端口干净拒绝,不让 ValueError 冒泡成崩溃(审查 LOW)
     try:
         infos = socket.getaddrinfo(host, port, family=socket.AF_UNSPEC, proto=socket.IPPROTO_TCP)
     except (socket.gaierror, UnicodeError):
-        return None  # 解析不了/主机名无法 IDNA 编码:交抓取层报网络错误,不在这里崩(避免误杀 DNS 抖动)
+        return None, None  # 解析不了/无法 IDNA 编码:交抓取层报网络错误,不在这里崩(避免误杀 DNS 抖动)
+    vetted: list[str] = []
     for info in infos:
         addr = info[4][0]
         try:
             if _ip_blocked(ipaddress.ip_address(addr)):
-                return f"refused: {host} resolves to internal/reserved {addr}"
+                return f"refused: {host} resolves to internal/reserved {addr}", None
         except ValueError:
             continue
-    return None
+        vetted.append(addr)
+    if not vetted:
+        return None, None
+    # 钉到已校验 IP:优先 v4(--resolve 无歧义),否则 v6 加括号。curl 连该 IP,SNI/证书仍用原主机名。
+    v4 = [a for a in vetted if ":" not in a]
+    pick = v4[0] if v4 else vetted[0]
+    pin_addr = pick if ":" not in pick else f"[{pick}]"
+    return None, f"{host}:{port}:{pin_addr}"
+
+
+def vet_url(url: str) -> str | None:
+    """只校验、不解析钉 IP(浏览器档初始/落地复校用):放行 None,拒绝返回原因串。"""
+    return check_and_resolve(url)[0]

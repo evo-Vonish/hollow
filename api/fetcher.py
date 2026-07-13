@@ -13,7 +13,9 @@ from datetime import datetime, timezone
 from urllib.parse import urljoin
 
 from curl_cffi import CurlError
-from scrapling.fetchers import DynamicFetcher, Fetcher, StealthyFetcher
+from curl_cffi import requests as _cffi
+from curl_cffi.const import CurlOpt
+from scrapling.fetchers import DynamicFetcher, StealthyFetcher
 
 from api import config, netguard, purifier
 
@@ -88,20 +90,45 @@ def _too_large(resp) -> bool:
     return bool(body) and len(body) > config.MAX_FETCH_BYTES
 
 
+class _StaticResp:
+    """curl_cffi Response 适配到 _gate/_too_large 期望的 .status/.url/.body/.headers。"""
+    __slots__ = ("status", "url", "body", "headers")
+
+    def __init__(self, r) -> None:
+        self.status = r.status_code
+        self.url = str(getattr(r, "url", "") or "")
+        self.body = r.content
+        self.headers = r.headers
+
+
+def _static_get(url: str, pin: str | None, timeout_s: float, impersonate: str | None):
+    """静态档单跳:**直调 curl_cffi**(绕开 Scrapling —— 它不转发 curl_options,审查确认)。
+    pin 存在时用 CURLOPT_RESOLVE 把主机名钉到 netguard 刚校验过的 IP,关掉 vet→连接之间的
+    DNS-rebind 窗口(审查 #2);SNI/Host/证书仍按原主机名走(--resolve 语义)。
+    follow_redirects(allow_redirects)=False:逐跳交外层 netguard 校验。无内置重试(预算可控)。"""
+    session = _cffi.Session(curl_options={CurlOpt.RESOLVE: [pin]}) if pin else _cffi.Session()
+    try:
+        return session.request(
+            "GET", url, impersonate=impersonate, timeout=timeout_s,
+            allow_redirects=False, verify=True, stream=False,
+        )
+    finally:
+        session.close()
+
+
 def _fetch_sync(url: str, timeout_s: float, impersonate: str | None, do_purify: bool) -> FetchResult:
-    """静态档:手动逐跳跟随重定向,每一跳 netguard 校验目的地(SSRF 防护,安全批)。
-    curl_cffi 经环境代理连接,follow_redirects=False,由我们自己看 Location 决定下一跳——
-    既能过代理、又能对**原始 URL 和每个重定向目标**都做内网拒绝(curl 的 safe 模式做不到)。"""
+    """静态档:手动逐跳跟随重定向,每一跳 netguard 校验目的地 + DNS-pin(SSRF 防护,安全批 + 审查 #2)。
+    对**原始 URL 和每个重定向目标**都做内网拒绝并钉 IP(curl 的 safe 模式做不到)。"""
     fetched_at = _now_iso()
-    blocked = netguard.vet_url(url)
-    if blocked:
-        return FetchResult(url, "blocked", fetched_at=fetched_at, error=f"SSRF guard: {blocked}")
     current = url
     for _hop in range(config.MAX_REDIRECTS + 1):
+        reason, pin = netguard.check_and_resolve(current)
+        if reason:
+            tag = "" if current == url else f" (redirect→{current[:80]})"
+            return FetchResult(url, "blocked", fetched_at=fetched_at,
+                               error=f"SSRF guard{tag}: {reason}")
         try:
-            # retries=1:关掉 Scrapling 内置 3 连试(否则线程内最坏 3×timeout,外层 wait_for 兜不住)
-            resp = Fetcher.get(current, timeout=timeout_s, impersonate=impersonate,
-                               retries=1, follow_redirects=False)
+            raw = _static_get(current, pin, timeout_s, impersonate)
         except CurlError as e:
             code = getattr(e, "code", None)
             code_val = getattr(code, "value", code)  # CurlECode 枚举或裸 int
@@ -113,7 +140,8 @@ def _fetch_sync(url: str, timeout_s: float, impersonate: str | None, do_purify: 
         except Exception as e:  # 单 URL 任何异常都只影响自己这条占位
             return FetchResult(url, "failed", fetched_at=fetched_at,
                                error=f"{type(e).__name__}: {e}")
-        if 300 <= resp.status < 400:  # 重定向:取 Location,校验后进下一跳
+        resp = _StaticResp(raw)
+        if 300 <= resp.status < 400:  # 重定向:取 Location,下一跳由循环顶部 check_and_resolve 校验+钉
             loc = None
             try:
                 loc = resp.headers.get("location") or resp.headers.get("Location")
@@ -122,12 +150,7 @@ def _fetch_sync(url: str, timeout_s: float, impersonate: str | None, do_purify: 
             if not loc:
                 return FetchResult(url, "failed", http_status=resp.status, fetched_at=fetched_at,
                                    error=f"HTTP {resp.status} redirect without Location")
-            nxt = urljoin(current, loc)
-            blocked = netguard.vet_url(nxt)
-            if blocked:
-                return FetchResult(url, "blocked", http_status=resp.status, fetched_at=fetched_at,
-                                   error=f"SSRF guard (redirect→{nxt[:80]}): {blocked}")
-            current = nxt
+            current = urljoin(current, loc)
             continue
         if _too_large(resp):
             return FetchResult(url, "failed", http_status=resp.status, fetched_at=fetched_at,
