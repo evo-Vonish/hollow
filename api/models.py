@@ -88,4 +88,5 @@ class ResearchResponse(BaseModel):
     query: str
     created_at: str
     items: list[ResearchItem]
+    answers: list[dict] = []  # SearXNG infobox/answer 归一后的即时答案(见 searx_client.instant_answers)
     meta: ResearchMeta

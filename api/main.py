@@ -13,7 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from api import auth, config, fetcher, orchestrator
 from api.models import ResearchRequest, ResearchResponse
 from api.responses import UTF8JSONResponse
-from api.searx_client import InvalidQueryError, SearxUnavailableError
+from api.searx_client import InvalidQueryError, SearxBadRequestError, SearxUnavailableError
 
 
 @asynccontextmanager
@@ -73,7 +73,7 @@ async def research(req: ResearchRequest, request: Request):
         return denied
     try:
         return await orchestrator.run_research(req, app.state.http)
-    except InvalidQueryError as e:  # 客户端输入问题,不是上游故障
+    except (InvalidQueryError, SearxBadRequestError) as e:  # 客户端输入问题,不是上游故障
         raise HTTPException(status_code=400, detail=str(e)) from e
     except SearxUnavailableError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e

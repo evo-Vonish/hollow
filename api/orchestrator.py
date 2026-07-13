@@ -314,6 +314,7 @@ async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
             .isoformat(timespec="seconds")
             .replace("+00:00", "Z"),
             items=items,
+            answers=searx_client.instant_answers(outcome),  # infobox/answer 透出(不再丢弃)
             meta=ResearchMeta(
                 search=search_meta,
                 fetch=FetchMeta(

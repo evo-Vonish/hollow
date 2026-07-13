@@ -89,8 +89,13 @@ scenes 现有 9 个:general / knowledge / dev / academic / news / social / image
 | 400 | `invalid_query` | query 经 bang/filter 清洗后为空 |
 | 400 | `engine_removed` / `unknown_engine` | 点名了 L1 源 / 注册表外的名字 |
 | 400 | `unknown_scene` | scenes 里有注册表外的场景 |
+| 400 | `invalid_search_param` | SearXNG 判定透传参数非法(如 `time_range`/`language` 取值错);此前误报 502 |
 | 401 | `invalid_api_key` | HOLLOW_API_KEY 已设置且 Bearer 不匹配 |
-| 502 | `upstream_unavailable` | SearXNG 不可达/非 200/非 JSON |
+| 502 | `upstream_unavailable` | SearXNG 不可达/5xx/非 JSON(真上游故障) |
+
+**两个响应级字段(禁止静默丢弃 · 底线②):**
+- `answers`:SearXNG 的 infobox/answer 归一后透出(`[{object:"answer",type:"infobox"|"answer",title,content,url,img_src,engine}]`)。一个只产出 infobox 的查询(如 wikipedia+"Python")不再是 `results:[]` 的假失败。/v1/search 与 /v1/research 均有。
+- `ignored_params`:请求里未被识别的字段名(拼错的 `engine`、别家产品的 `exclude_domains` 等)。`extra="allow"` 收进后如实回报,不静默吞掉客户端的意图。仅在非空时出现。
 
 ## 五、用法示例(httpx)
 

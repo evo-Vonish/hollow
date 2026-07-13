@@ -30,7 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from api import auth, config, orchestrator, registry
 from api.models import ResearchItem, ResearchRequest, ResearchResponse, SearchMeta
 from api.responses import UTF8JSONResponse
-from api.searx_client import InvalidQueryError, SearxUnavailableError
+from api.searx_client import InvalidQueryError, SearxBadRequestError, SearxUnavailableError
 from api import searx_client
 
 router = APIRouter(prefix="/v1")
@@ -89,7 +89,14 @@ class SearchCreate(BaseModel):
     language: str = "auto"
     time_range: str | None = None
     safesearch: int = Field(default=0, ge=0, le=2)
-    model_config = ConfigDict(extra="ignore")
+    # extra="allow"(而非 ignore):未知/拼错参数不静默吞掉,收进 model_extra 后在响应的
+    # ignored_params 里如实回报(底线②:丢的不该是客户端的意图)——见 _ignored()。
+    model_config = ConfigDict(extra="allow")
+
+
+def _ignored(body) -> list[str]:
+    """请求里未被识别的字段名(拼错的 engine、别家产品的 exclude_domains 等)。"""
+    return sorted((body.model_extra or {}).keys())
 
 
 @router.post("/search")
@@ -108,6 +115,8 @@ async def create_search(body: SearchCreate, request: Request):
         )
     except InvalidQueryError as e:
         return _error(400, str(e), "invalid_request_error", "invalid_query", "query")
+    except SearxBadRequestError as e:
+        return _error(400, f"SearXNG rejected a parameter: {e}", "invalid_request_error", "invalid_search_param")
     except SearxUnavailableError as e:
         return _error(502, str(e), "api_error", "upstream_unavailable")
 
@@ -134,7 +143,7 @@ async def create_search(body: SearchCreate, request: Request):
         took_ms=outcome.took_ms,
         q_sanitized=outcome.q_sanitized,
     )
-    return {
+    resp = {
         "id": f"srch_{uuid.uuid4().hex}",
         "object": "search",
         "created": int(time.time()),
@@ -142,8 +151,13 @@ async def create_search(body: SearchCreate, request: Request):
         "scenes": body.scenes,
         "engines": engines,
         "results": results,
+        "answers": searx_client.instant_answers(outcome),  # infobox/answer 透出(不再丢弃)
         "search": ledger.model_dump(),
     }
+    ignored = _ignored(body)
+    if ignored:  # 未知/拼错参数如实回报,不静默吞掉(底线②)
+        resp["ignored_params"] = ignored
+    return resp
 
 
 # ---------- POST /v1/research(搜索+抓取+净化) ----------
@@ -174,7 +188,7 @@ class ResearchCreate(BaseModel):
     time_range: str | None = None
     safesearch: int = Field(default=0, ge=0, le=2)
     stream: bool = False
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")  # 未知参数收进 model_extra 后回报,不静默吞掉
 
 
 def _item_dict(item: ResearchItem, with_content: bool = True) -> dict:
@@ -187,7 +201,7 @@ def _item_dict(item: ResearchItem, with_content: bool = True) -> dict:
 def _research_object(rid: str, created: int, body: ResearchCreate,
                      engines: list[str], resp: ResearchResponse,
                      with_content: bool = True) -> dict:
-    return {
+    obj = {
         "id": rid,
         "object": "research",
         "created": created,
@@ -195,9 +209,14 @@ def _research_object(rid: str, created: int, body: ResearchCreate,
         "scenes": body.scenes,
         "engines": engines,
         "items": [_item_dict(it, with_content) for it in resp.items],
+        "answers": resp.answers,  # infobox/answer 透出(不再丢弃)
         "search": resp.meta.search.model_dump(),
         "fetch": resp.meta.fetch.model_dump(),
     }
+    ignored = _ignored(body)
+    if ignored:  # 未知/拼错参数如实回报(底线②)
+        obj["ignored_params"] = ignored
+    return obj
 
 
 @router.post("/research")
@@ -226,6 +245,8 @@ async def create_research(body: ResearchCreate, request: Request):
             resp = await orchestrator.run_research(req, client)
         except InvalidQueryError as e:
             return _error(400, str(e), "invalid_request_error", "invalid_query", "query")
+        except SearxBadRequestError as e:
+            return _error(400, f"SearXNG rejected a parameter: {e}", "invalid_request_error", "invalid_search_param")
         except SearxUnavailableError as e:
             return _error(502, str(e), "api_error", "upstream_unavailable")
         return _research_object(rid, created, body, engines, resp)
@@ -238,6 +259,8 @@ async def create_research(body: ResearchCreate, request: Request):
         first = await events.__anext__()  # ("search", SearchMeta, selected)
     except InvalidQueryError as e:
         return _error(400, str(e), "invalid_request_error", "invalid_query", "query")
+    except SearxBadRequestError as e:
+        return _error(400, f"SearXNG rejected a parameter: {e}", "invalid_request_error", "invalid_search_param")
     except SearxUnavailableError as e:
         return _error(502, str(e), "api_error", "upstream_unavailable")
 

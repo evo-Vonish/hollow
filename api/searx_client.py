@@ -29,11 +29,54 @@ BROWSER_HEADERS = {
 
 
 class SearxUnavailableError(Exception):
-    """SearXNG 进程不可达/返回异常状态码/返回非 JSON 响应。"""
+    """SearXNG 进程不可达/返回 5xx/返回非 JSON 响应(真上游故障 → 502)。"""
+
+
+class SearxBadRequestError(Exception):
+    """SearXNG 返回 400(非法 language/time_range 等)——客户端输入问题 → 400,不该误报 502。"""
 
 
 class InvalidQueryError(Exception):
     """q 经 bang 防护清洗后为空(整条 q 只有 !/:/< 前缀 token)——客户端输入问题。"""
+
+
+def _s(v) -> str | None:
+    return v if isinstance(v, str) and v not in ("", "None") else None
+
+
+def instant_answers(outcome: "SearchOutcome") -> list[dict]:
+    """把 SearXNG 的 infobox / answer 两个通道归一成统一的即时答案列表。
+
+    否则整条通道被丢弃:一个只产出 infobox 的查询(如 wikipedia + "Python")在 API 看来
+    会像 results:[] 的彻底失败——审查确认这违反了自家底线②"禁止静默丢弃"。
+    """
+    out: list[dict] = []
+    for ib in outcome.infoboxes or []:
+        if not isinstance(ib, dict):
+            continue
+        urls = ib.get("urls") or []
+        url = _s(ib.get("id")) or _s(ib.get("url"))
+        if not url and urls and isinstance(urls[0], dict):
+            url = _s(urls[0].get("url"))
+        out.append({
+            "object": "answer", "type": "infobox",
+            "title": _s(ib.get("infobox")),
+            "content": _s(ib.get("content")),
+            "url": url,
+            "img_src": _s(ib.get("img_src")),
+            "engine": _s(ib.get("engine")),
+        })
+    for a in outcome.answers or []:
+        if isinstance(a, dict):
+            out.append({
+                "object": "answer", "type": "answer", "title": None,
+                "content": _s(a.get("answer")), "url": _s(a.get("url")),
+                "img_src": None, "engine": _s(a.get("engine")),
+            })
+        elif a:  # 旧版 SearXNG:answers 可能是纯字符串
+            out.append({"object": "answer", "type": "answer", "title": None,
+                        "content": str(a), "url": None, "img_src": None, "engine": None})
+    return out
 
 
 @dataclass
@@ -138,6 +181,14 @@ async def search(
         raise SearxUnavailableError(f"SearXNG unreachable: {e!r}") from e
     took_ms = int((time.perf_counter() - t0) * 1000)
 
+    if resp.status_code == 400:
+        # SearXNG 判定客户端参数非法(如 language/time_range 取值错)——转 400,别误报 502。
+        detail = resp.text[:200]
+        try:
+            detail = resp.json().get("error", detail)
+        except ValueError:
+            pass
+        raise SearxBadRequestError(str(detail))
     if resp.status_code != 200:
         raise SearxUnavailableError(
             f"SearXNG /search returned HTTP {resp.status_code}: {resp.text[:200]}"
