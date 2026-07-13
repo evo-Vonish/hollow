@@ -39,11 +39,28 @@ def _as_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     return None
 
 
+_ULA6 = ipaddress.ip_network("fc00::/7")  # IPv6 唯一本地地址(ULA)
+
+
 def _ip_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    # IPv4-mapped IPv6(::ffff:127.0.0.1)按其内嵌 v4 判(否则映射写法可绕过)
+    if ip.version == 6:
+        mapped = ip.ipv4_mapped
+        if mapped is not None:
+            return _ip_blocked(mapped)
+        # v6 校准(底线④):只拦**明确内网**类别,刻意不用 is_private/is_reserved 全量——
+        # 否则 Windows Teredo 给公网域名返回的合成 2001::/23(Python 判 is_private/reserved)会误杀。
+        return (
+            ip.is_loopback       # ::1
+            or ip.is_link_local  # fe80::/10
+            or ip.is_unspecified  # ::
+            or ip.is_multicast
+            or ip in _ULA6       # fc00::/7(含 fd00::/8,内网 IPv6 主力)
+        )
     return (
-        ip.is_private        # RFC1918 / IPv6 ULA fc00::/7
-        or ip.is_loopback    # 127.0.0.0/8, ::1
-        or ip.is_link_local  # 169.254.0.0/16(含云元数据 169.254.169.254), fe80::/10
+        ip.is_private        # RFC1918
+        or ip.is_loopback    # 127.0.0.0/8
+        or ip.is_link_local  # 169.254.0.0/16(含云元数据 169.254.169.254)
         or ip.is_reserved
         or ip.is_multicast
         or ip.is_unspecified
@@ -69,15 +86,14 @@ def vet_url(url: str) -> str | None:
     ip = _as_ip(host)
     if ip is not None:
         return f"refused internal/reserved address {host}" if _ip_blocked(ip) else None
-    # 主机名:只解析 IPv4(AF_INET)。不查 IPv6——Windows Teredo 会给公网域名返回合成的
-    # 2001::/23 地址(Python 判为 is_private)造成误杀;且这类机器实际走 IPv4 抓取。
-    # 残留:纯 IPv6 内网主机名不被拦(次要向量,记入待办)。
+    # 主机名:解析**双栈**(AF_UNSPEC),A/AAAA 全部校验(审查 #3:只发 AAAA 的内网 IPv6
+    # 主机原先漏网)。Teredo 误杀由 _ip_blocked 的 v6 校准处理(不再靠 AF_INET-only 规避)。
     try:
         port = parts.port or (443 if parts.scheme == "https" else 80)
     except ValueError:
         return "invalid port in URL"  # 坏端口在此干净拒绝,不让 ValueError 冒泡成崩溃(审查 LOW)
     try:
-        infos = socket.getaddrinfo(host, port, family=socket.AF_INET, proto=socket.IPPROTO_TCP)
+        infos = socket.getaddrinfo(host, port, family=socket.AF_UNSPEC, proto=socket.IPPROTO_TCP)
     except (socket.gaierror, UnicodeError):
         return None  # 解析不了/主机名无法 IDNA 编码:交抓取层报网络错误,不在这里崩(避免误杀 DNS 抖动)
     for info in infos:

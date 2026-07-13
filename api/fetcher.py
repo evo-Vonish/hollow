@@ -165,6 +165,21 @@ def _fetch_browser_sync(url: str, timeout_s: float, tier: str, do_purify: bool) 
     if _too_large(resp):
         return FetchResult(url, "failed", http_status=resp.status, fetched_at=fetched_at, tier=tier,
                            error=f"response too large ({len(resp.body)} bytes > {config.MAX_FETCH_BYTES})")
+    # 审查 #1:Chromium 内部自跟随重定向,初始 vet 挡不住跳内网(如 302→169.254.169.254)。
+    # 抓完复校**最终 URL + 每一跳重定向历史**(Scrapling 的 resp.url/resp.history 均暴露),
+    # 命中内网即丢正文、返回 blocked——闭合"读到云元数据/内网正文"的外泄路径。
+    # (残留:页面内 XHR/meta-refresh 到内网、盲 SSRF 请求发出本身,需 page.route 抢先拦截,见待办。)
+    landed = [str(getattr(resp, "url", "") or url)]
+    for _h in (getattr(resp, "history", None) or []):
+        _hu = str(getattr(_h, "url", "") or "")
+        if _hu:
+            landed.append(_hu)
+    for _lu in landed:
+        bad = netguard.vet_url(_lu)
+        if bad:
+            return FetchResult(url, "blocked", http_status=getattr(resp, "status", None),
+                               fetched_at=fetched_at, tier=tier,
+                               error=f"SSRF guard (browser redirected to internal {_lu[:80]}): {bad}")
     fr = _gate(resp, do_purify, tier, fetched_at)
     fr.url = fr.url or url
     return fr

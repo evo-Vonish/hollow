@@ -321,6 +321,9 @@ class FetchCreate(BaseModel):
     max_content_chars: int | None = Field(default=None, ge=100)
     concurrency: int = Field(default=config.FETCH_CONCURRENCY, ge=1,
                              le=config.REQUEST_CONCURRENCY_MAX)
+    budget: float | None = Field(default=None, gt=0, le=300,
+                                 description="整单时间预算(秒);到点即收口,未完成的 URL 记 timeout "
+                                             "并注明是预算切断——防单请求垄断浏览器槽(审查 #4)")
     model_config = ConfigDict(extra="allow")  # 未知参数收进 model_extra 后回报,不静默吞掉
 
 
@@ -356,19 +359,31 @@ async def create_fetch(body: FetchCreate, request: Request):
     semaphore = asyncio.Semaphore(body.concurrency)
     browser_semaphore = asyncio.Semaphore(config.REQUEST_BROWSER_CONCURRENCY)
     t0 = time.perf_counter()
-    results = await asyncio.gather(*[
+    tasks = [asyncio.create_task(
         fetcher.fetch_one(u, semaphore=semaphore, timeout_s=timeout_s,
                           impersonate=config.IMPERSONATE, escalate=escalate,
-                          purify=body.purify, browser_semaphore=browser_semaphore)
-        for u in unique
-    ], return_exceptions=True)
+                          purify=body.purify, browser_semaphore=browser_semaphore))
+        for u in unique]
+    # 整单预算:到点即收口(审查 #4:防一个全 blocked 的请求死磕升级链、垄断 2 个全局浏览器槽)。
+    # 无 budget 时 timeout=None 等价于等全部完成。budget_cut 计数供账目透明(禁止静默丢弃)。
+    await asyncio.wait(tasks, timeout=body.budget)
     took_ms = int((time.perf_counter() - t0) * 1000)
 
     counts = {"ok": 0, "failed": 0, "timeout": 0, "blocked": 0, "no_content": 0}
+    budget_cut = 0
     items: list[dict] = []
-    for u, fr in zip(unique, results):
-        if isinstance(fr, BaseException):  # fetch_one 契约上不抛;防御收敛,单条坏不 500 整单
-            fr = fetcher.FetchResult(u, "failed", error=f"{type(fr).__name__}: {fr}")
+    for u, t in zip(unique, tasks):
+        if not t.done():  # 预算到点仍未完成:取消并如实出条目(timeout,注明是预算切断)
+            t.cancel()
+            budget_cut += 1
+            fr = fetcher.FetchResult(u, "timeout",
+                                     error=f"whole-request budget {body.budget}s exceeded "
+                                           f"before this URL completed (not a per-URL timeout)")
+        else:
+            try:
+                fr = t.result()
+            except BaseException as ex:  # fetch_one 契约上不抛;防御收敛,单条坏不 500 整单
+                fr = fetcher.FetchResult(u, "failed", error=f"{type(ex).__name__}: {ex}")
         content = fr.content
         if content is not None and body.max_content_chars and len(content) > body.max_content_chars:
             content = content[:body.max_content_chars] + "…(truncated)"
@@ -389,15 +404,18 @@ async def create_fetch(body: FetchCreate, request: Request):
         counts[fr.status] = counts.get(fr.status, 0) + 1
         items.append(item)
 
+    if budget_cut:  # reap 掉被取消的抓取任务,避免 "Task was destroyed but pending" 告警
+        await asyncio.gather(*tasks, return_exceptions=True)
+
     # 不变量:requested == len(items) == ok+failed+timeout+blocked+no_content;
-    #         submitted == requested + deduped
+    #         submitted == requested + deduped。budget_cut ⊆ timeout(其中因预算切断的条数)。
     resp = {
         "id": f"ftch_{uuid.uuid4().hex}",
         "object": "fetch",
         "created": int(time.time()),
         "items": items,
         "fetch": {"submitted": len(submitted), "requested": len(unique),
-                  "deduped": deduped, **counts, "took_ms": took_ms},
+                  "deduped": deduped, **counts, "budget_cut": budget_cut, "took_ms": took_ms},
     }
     ignored = _ignored(body)
     if ignored:  # 未知/拼错参数如实回报(底线②)
