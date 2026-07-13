@@ -128,9 +128,10 @@ async def _fetch_and_assemble(
     semaphore: asyncio.Semaphore, browser_semaphore: asyncio.Semaphore,
     timeout_s: float, escalate: bool,
 ) -> tuple[int, ResearchItem, float]:
-    """单条:抓取 -> 净化 -> 组装。任何异常都收敛成占位 item(禁止静默丢弃)。
-    返回的第三项是抓取完成时刻(perf_counter),供 fetch.took_ms 保持
-    "只计抓取段"的旧口径 —— 净化/组装耗时不计入账目(审查确认项)。"""
+    """单条:抓取(含内容闸门净化)-> 组装占位。任何异常都收敛成占位 item(禁止静默丢弃)。
+    返回的第三项是 fetch_one 完成时刻(perf_counter)。内容闸门后,净化已前移进抓取层
+    (它是判定"抓没抓到正文/是否升级"的一部分),故 fetch.took_ms 现在= 抓取+抽取的耗时;
+    _assemble_item 的截断/组装(极轻)仍不计入(口径较内容闸门前变化,见 design/05)。"""
     fr = await fetcher.fetch_one(
         candidate["url"],
         semaphore=semaphore,
@@ -301,7 +302,8 @@ async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
         for t in pending:  # 消费方断开:全部取消,不计不产出
             t.cancel()
         raise
-    # 口径与旧版一致:只计抓取段(至最后一条 fetch 完成),净化/组装不计入
+    # took_ms = 抓取+抽取阶段(至最后一条 fetch_one 完成);组装截断极轻不计入。
+    # 内容闸门后抽取前移进抓取层,故此口径含净化(design/05,审查确认的口径变化)
     fetch_took_ms = int((last_fetch_done - t0) * 1000)
 
     yield (
