@@ -94,9 +94,28 @@ def _result_engine(r: dict) -> str | None:
     return _safe_str(r.get("engine"))
 
 
+def _published(candidate: dict) -> str | None:
+    """SearXNG 的 publishedDate 透传:JSON 面通常已是 ISO 串;datetime 则 isoformat。缺失 → None
+    (禁止静默丢弃:有就带,没有显式 null)。"""
+    v = candidate.get("publishedDate")
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v or None
+    iso = getattr(v, "isoformat", None)  # datetime/date
+    if callable(iso):
+        try:
+            return iso()
+        except Exception:
+            return None
+    return str(v) or None
+
+
 def _assemble_item(candidate: dict, fr: fetcher.FetchResult, req: ResearchRequest) -> ResearchItem:
     # 净化 + 内容闸门已在抓取层完成(fr.content/purified/word_count);这里只做载荷截断
     content = fr.content
+    # highlights 从**全文**抽(截断前),否则被 max_content_chars 砍掉的段落里的高亮会丢
+    hl = rerank.highlights(req.q, fr.content) if fr.content else []
     if content is not None and req.max_content_chars and len(content) > req.max_content_chars:
         content = content[:req.max_content_chars] + "…(truncated)"
     return ResearchItem(
@@ -113,6 +132,9 @@ def _assemble_item(candidate: dict, fr: fetcher.FetchResult, req: ResearchReques
         content=content,
         error=fr.error,
         relevance=_safe_float(candidate.get("_rel")),
+        published_date=_published(candidate),
+        highlights=[s for s, _ in hl],
+        highlight_scores=[round(sc, 4) for _, sc in hl],
     )
 
 

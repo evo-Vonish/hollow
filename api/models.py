@@ -56,6 +56,9 @@ class ResearchItem(BaseModel):
     error: str | None = None
     relevance: float | None = None  # 词汇重排分(见 rerank.py);越大越相关
     rank: int | None = None         # 按 relevance 排序后的最终位次(0 起),非抓取完成顺序
+    published_date: str | None = None  # 发布日期(SearXNG 透传;有就带没有 null,不静默丢)
+    highlights: list[str] = []         # 正文中 query 最相关的几句(词汇抽取,无模型;对齐 Exa)
+    highlight_scores: list[float] = []  # 与 highlights 对位的相关分(可溯源,底线③)
 
 
 class SearchMeta(BaseModel):

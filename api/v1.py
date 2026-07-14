@@ -138,6 +138,7 @@ async def create_search(body: SearchCreate, request: Request):
             "score": orchestrator._safe_float(r.get("score")),   # SearXNG 原分(可溯源)
             "relevance": round(r.get("_rel", 0.0), 4),           # 词汇重排分(排序依据)
             "snippet": orchestrator._safe_str(r.get("content")),
+            "published_date": orchestrator._published(r),        # SearXNG 透传(缺 → null)
         })
     ledger = SearchMeta(
         engines_requested=engines,

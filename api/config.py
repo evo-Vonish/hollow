@@ -60,6 +60,12 @@ RERANK_W_TITLE: float = _env_float("HOLLOW_RERANK_W_TITLE", 3.0)
 RERANK_W_SNIPPET: float = _env_float("HOLLOW_RERANK_W_SNIPPET", 1.0)
 RERANK_W_PRIOR: float = _env_float("HOLLOW_RERANK_W_PRIOR", 0.5)
 
+# highlights(2026-07-15,对齐 Exa):从净化正文抽 query 最相关的句子。纯词汇打分、无模型。
+# ⚠️ 待校准(底线④):句长阈值与条数是起点,按真实正文调。
+HIGHLIGHTS_MAX: int = _env_int("HOLLOW_HIGHLIGHTS_MAX", 3)           # 每条 item 最多几句高亮
+HIGHLIGHT_MIN_CHARS: int = _env_int("HOLLOW_HIGHLIGHT_MIN_CHARS", 20)   # 太短的句(标题/碎片)不选
+HIGHLIGHT_MAX_CHARS: int = _env_int("HOLLOW_HIGHLIGHT_MAX_CHARS", 400)  # 太长的段(未断开)不选
+
 # 内容闸门(2026-07-07):净化出的正文低于此字符数 = 空壳/反爬页/无正文 → no_content。
 # "成功"从"HTTP 2xx"重定义为"真拿到正文":no_content 不算 ok、不占结果位、触发升级链渲染。
 # ⚠️ 阈值需校准后上线(底线4):200 是起点——空壳提取为空(远低于),真文章通常 500+,

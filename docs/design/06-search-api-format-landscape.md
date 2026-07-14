@@ -61,11 +61,16 @@
 
 | 字段 | 判断 | 成本 | 依据 |
 |---|---|---|---|
-| **`published_date`** | **建议补**(search.result + research.item) | 近零 | SearXNG 多引擎已返 `publishedDate`,透传即可;审计待办已列;A/B 两派几乎家家有(Exa/Serper/Bing/Brave);研究场景高价值 |
-| **`highlights`** | **建议补**(research.item / fetch.item) | 低 | 用**现有 rerank 词汇打分**从净化正文里抽 query 最相关的几句(不上模型,契合零成本哲学);Exa 的差异化卖点,hollow 能廉价复刻;给调用方"最相关段落"而非只有全文 |
-| `summary` | **暂不做** | 高(需 LLM) | 违背 hollow 现阶段"不在环里上模型"立场(底线④先校准);留给调用方/vonish 生成。文档标注:调用方的活 |
-| `favicon` | 可选 | 极低(URL host 推导) | 纯装饰;A/B 都有;低优先,想补随手补 |
+| **`published_date`** | ✅ **已补**(2026-07-15,search.result + research.item) | 近零 | SearXNG 多引擎已返 `publishedDate`,透传即可;A/B 两派几乎家家有;研究场景高价值。实测:学术检索条条带真实 ISO 日期,web 教程缺 → 显式 null |
+| **`highlights`** | ✅ **已补**(2026-07-15,research.item;含 `highlight_scores` 对位) | 低 | `rerank.highlights()` 用现有词汇打分从**全文**抽 query 最相关的 top-K 句(不上模型);对齐 Exa。实测:asyncio 查询抽出 event-loop 相关句、中文 CJK bigram 命中回收句 |
+| `summary` | **暂不做** | 高(需 LLM) | 违背 hollow 现阶段"不在环里上模型"立场(底线④先校准);留给调用方/vonish 生成 |
+| `favicon` | 未选(可选) | 极低(URL host 推导) | 纯装饰;A/B 都有;低优先,想补随手补 |
 | `author` | 不做 | — | 仅 Exa 有,冷门 |
+
+> **落地(2026-07-15)**:`published_date` 走 `orchestrator._published()` 从 SearXNG 结果透传(datetime→ISO,缺 null);
+> `highlights` 走 `rerank.highlights(query, 全文)`——切句(中英/CJK 通用)、`features()` 词汇命中打分
+> (分 = 命中数/√句特征数,抑长句)、取 top-K(config `HIGHLIGHTS_MAX=3`,句长 20~400,均可校准)。
+> 均遵禁止静默丢弃:有就带、无则显式 null / 空数组。字段名沿用 hollow 的 snake_case(非照抄 Exa camelCase)。
 
 > 落地提示:`highlights` 复用 `api/rerank.py` 的 `features()`/命中打分——把净化正文切句、按 query 特征打分、取 top-K,
 > 挂到 research.item 的 `highlights: [str]`(可加 `highlight_scores: [float]` 对齐 Exa 的可溯源)。`published_date` 从

@@ -33,7 +33,8 @@
 ```
 
 响应:`{"id":"srch_…","object":"search","created":…,"query":…,"scenes":…,"engines":[实际引擎集],
-"results":[{"object":"search.result","url","title","engine","score","snippet"}…],"search":{账目}}`
+"results":[{"object":"search.result","url","title","engine","score","relevance","snippet","published_date"}…],"search":{账目}}`
+(`published_date`:SearXNG 透传的发布日期,缺失显式 null;`relevance`:词汇重排分,见 design/06)
 
 ### POST /v1/research —— 搜索 + 并行抓取 + 净化
 
@@ -53,6 +54,9 @@
 
 非流式响应:`{"id":"res_…","object":"research","created":…,"query","scenes","engines",
 "items":[{"object":"research.item",…}],"search":{…},"fetch":{…}}`。
+research.item 除正文字段外带:`published_date`(SearXNG 透传,缺 null)、`highlights`(正文中 query 最相关的
+几句,词汇抽取无模型,对齐 Exa;从**全文**抽故不受 `max_content_chars` 截断影响)、`highlight_scores`
+(与 highlights 对位的相关分,底线③;仅 ok 条目非空)。字段决策与横评见 docs/design/06。
 `fetch` 账目:`{target, pool, requested, ok, failed, timeout, blocked, cancelled, stopped_reason, took_ms}`。
 不变量:`requested == len(items) == ok+failed+timeout+blocked+no_content`;`pool == requested + cancelled`;`ok <= target`。
 `stopped_reason` ∈ {`target_reached`, `pool_exhausted`, `budget`},被砍候选显式计入 `cancelled`,禁止静默丢弃。

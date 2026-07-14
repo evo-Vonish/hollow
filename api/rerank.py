@@ -63,6 +63,39 @@ def relevance(qf: set[str], title: str | None, snippet: str | None, prior_norm: 
             + config.RERANK_W_PRIOR * prior_norm)
 
 
+_SENT_SPLIT = re.compile(r"(?<=[.!?。!?])\s*|[\n\r]+")  # 句末标点后 / 换行处断句(中英通用)
+
+
+def highlights(query: str, text: str | None, k: int | None = None) -> list[tuple[str, float]]:
+    """从净化正文抽 query 最相关的 top-k 句(纯词汇打分,无模型;对齐 Exa 的 highlights)。
+    返回 [(句子, 分)] 按分降序;分 = query 命中特征数 / sqrt(句特征数)(sqrt 抑制长句虚高)。
+    复用 rerank 的 features()/query_features(),故中英/CJK bigram 行为与重排一致。"""
+    if not text:
+        return []
+    k = config.HIGHLIGHTS_MAX if k is None else k
+    qf = query_features(query)
+    if not qf:
+        return []
+    scored: list[tuple[str, float]] = []
+    seen: set[str] = set()
+    for raw in _SENT_SPLIT.split(text):
+        s = raw.strip()
+        if not (config.HIGHLIGHT_MIN_CHARS <= len(s) <= config.HIGHLIGHT_MAX_CHARS):
+            continue
+        if s in seen:  # 去重复句(样板段落常重复)
+            continue
+        sf = features(s)
+        if not sf:
+            continue
+        hit = len(qf & sf)
+        if hit == 0:
+            continue
+        seen.add(s)
+        scored.append((s, hit / (len(sf) ** 0.5)))
+    scored.sort(key=lambda x: -x[1])
+    return scored[:k]
+
+
 def _num(v) -> float:
     try:
         return float(v)
