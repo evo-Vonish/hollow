@@ -28,13 +28,19 @@
   "query": "锂电池回收技术",       // 必填
   "scenes": ["zh", "news"],       // 可选,多选,引擎取并集
   "engines": ["arxiv"],           // 可选,自定义点名,并入场景集
-  "language": "auto", "time_range": null, "safesearch": 0
+  "language": "auto", "time_range": null, "safesearch": 0,
+  "page": 1,                      // 分页(SearXNG pageno,1~20)
+  "include_domains": ["arxiv.org"],   // 可选,只留这些域(含子域;过滤在召回之后)
+  "exclude_domains": ["pinterest.com"]  // 可选,剔除这些域(含子域)
 }
 ```
 
-响应:`{"id":"srch_…","object":"search","created":…,"query":…,"scenes":…,"engines":[实际引擎集],
-"results":[{"object":"search.result","url","title","engine","score","relevance","snippet","published_date"}…],"search":{账目}}`
-(`published_date`:SearXNG 透传的发布日期,缺失显式 null;`relevance`:词汇重排分,见 design/06)
+响应:`{"id":"srch_…","object":"search","created":…,"query":…,"scenes":…,"engines":[实际引擎集],"page":1,
+"results":[{"object":"search.result","url","title","engine","score","relevance","snippet","published_date"}…],
+"answers":[…],"search":{账目},"usage":{searches,engines_queried,results_returned}}`
+(`published_date`:SearXNG 透传的发布日期,缺失显式 null;`relevance`:词汇重排分,见 design/06;
+`page` 回显;`usage`:OpenAI 风格用量账目——**配额强制需存储,本版只暴露用量**,细账仍看 `search`。
+域过滤是 **hollow 侧后置过滤**:SearXNG 不统一支持域过滤,故在召回后按 host 过滤,可能使产出少于预期)
 
 ### POST /v1/research —— 搜索 + 并行抓取 + 净化
 
@@ -50,6 +56,8 @@
 | `timeout` | 跟随 mode | **单 URL** 抓取超时(秒);缺省跟随 mode 预设,显式传值覆盖 |
 | `escalate` | 跟随 mode | **三档升级链**:static blocked/failed 时升 dynamic(chromium)、仍失败升 stealthy(patchright 反检测);timeout 不升级。`engine_used` 标最终档位,走完仍失败 error 留完整升级历史。浏览器档进程级闸 2 + 每请求闸 2。**本版不主动解 Cloudflare**(vendor solver 是不可中断无上限循环,会致线程泄漏——审查确认;碰 CF 墙返回 blocked) |
 | `purify` | true | trafilatura 净化,失败回退 raw HTML |
+| `page` | 1(1~20) | 分页(SearXNG pageno);翻页取下一批搜索结果再抓取 |
+| `include_domains` / `exclude_domains` | 无 | 按 host 过滤召回(含子域);**召回后**过滤,在选池前生效,故抓取只发生在允许域 |
 | `stream` | false | SSE 语义事件流 |
 
 非流式响应:`{"id":"res_…","object":"research","created":…,"query","scenes","engines",

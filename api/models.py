@@ -19,6 +19,10 @@ class ResearchRequest(BaseModel):
     language: str = "auto"
     time_range: str | None = None
     safesearch: int = Field(default=0, ge=0, le=2)
+    # 产品差距批(2026-07-15):分页 + 域过滤(Tavily/Exa 风格,hollow 侧后置过滤)
+    page: int = Field(default=1, ge=1, le=20)
+    include_domains: list[str] | None = None
+    exclude_domains: list[str] | None = None
     # fetch_top_n 语义:想要的**成功正文条数**(target ok);fast 模式凑够即停
     fetch_top_n: int = Field(
         default=config.FETCH_TOP_N_DEFAULT, ge=1, le=config.FETCH_TOP_N_MAX

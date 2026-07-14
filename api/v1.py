@@ -30,7 +30,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from api import auth, config, fetcher, orchestrator, registry, rerank
+from api import auth, config, fetcher, filters, orchestrator, registry, rerank
 from api.models import ResearchItem, ResearchRequest, ResearchResponse, SearchMeta
 from api.responses import UTF8JSONResponse
 from api.searx_client import InvalidQueryError, SearxBadRequestError, SearxUnavailableError
@@ -92,6 +92,10 @@ class SearchCreate(BaseModel):
     language: str = "auto"
     time_range: str | None = None
     safesearch: int = Field(default=0, ge=0, le=2)
+    # 产品差距批:分页 + 域过滤(Tavily/Exa 风格,hollow 侧后置过滤,过滤在召回之后)
+    page: int = Field(default=1, ge=1, le=20, description="分页(SearXNG pageno)")
+    include_domains: list[str] | None = Field(default=None, description="只保留这些域(含子域)")
+    exclude_domains: list[str] | None = Field(default=None, description="剔除这些域(含子域)")
     # extra="allow"(而非 ignore):未知/拼错参数不静默吞掉,收进 model_extra 后在响应的
     # ignored_params 里如实回报(底线②:丢的不该是客户端的意图)——见 _ignored()。
     model_config = ConfigDict(extra="allow")
@@ -114,7 +118,7 @@ async def create_search(body: SearchCreate, request: Request):
     try:
         outcome = await searx_client.search(
             client, q=body.query, engines=engines, language=body.language,
-            time_range=body.time_range, safesearch=body.safesearch,
+            time_range=body.time_range, safesearch=body.safesearch, page=body.page,
         )
     except InvalidQueryError as e:
         return _error(400, str(e), "invalid_request_error", "invalid_query", "query")
@@ -124,7 +128,9 @@ async def create_search(body: SearchCreate, request: Request):
         return _error(502, str(e), "api_error", "upstream_unavailable")
 
     results = []
-    for r in rerank.rerank(body.query, outcome.results):  # 按相关性排序(否则 position 分把空壳排前)
+    ranked = filters.filter_by_domain(  # 域过滤在重排之后、取结果之前(过滤在召回之后)
+        rerank.rerank(body.query, outcome.results), body.include_domains, body.exclude_domains)
+    for r in ranked:  # 按相关性排序(否则 position 分把空壳排前)
         if not isinstance(r, dict):
             continue
         url = r.get("url")
@@ -156,9 +162,13 @@ async def create_search(body: SearchCreate, request: Request):
         "query": body.query,
         "scenes": body.scenes,
         "engines": engines,
+        "page": body.page,
         "results": results,
         "answers": searx_client.instant_answers(outcome),  # infobox/answer 透出(不再丢弃)
         "search": ledger.model_dump(),
+        # usage:OpenAI 风格用量账目(配额强制需存储,暂只暴露用量;详细账目见 search)
+        "usage": {"searches": 1, "engines_queried": len(engines),
+                  "results_returned": len(results)},
     }
     ignored = _ignored(body)
     if ignored:  # 未知/拼错参数如实回报,不静默吞掉(底线②)
@@ -193,6 +203,9 @@ class ResearchCreate(BaseModel):
     language: str = "auto"
     time_range: str | None = None
     safesearch: int = Field(default=0, ge=0, le=2)
+    page: int = Field(default=1, ge=1, le=20, description="分页(SearXNG pageno)")
+    include_domains: list[str] | None = Field(default=None, description="只保留这些域(含子域)")
+    exclude_domains: list[str] | None = Field(default=None, description="剔除这些域(含子域)")
     stream: bool = False
     model_config = ConfigDict(extra="allow")  # 未知参数收进 model_extra 后回报,不静默吞掉
 
@@ -207,6 +220,7 @@ def _item_dict(item: ResearchItem, with_content: bool = True) -> dict:
 def _research_object(rid: str, created: int, body: ResearchCreate,
                      engines: list[str], resp: ResearchResponse,
                      with_content: bool = True) -> dict:
+    fetch = resp.meta.fetch
     obj = {
         "id": rid,
         "object": "research",
@@ -214,10 +228,14 @@ def _research_object(rid: str, created: int, body: ResearchCreate,
         "query": resp.query,
         "scenes": body.scenes,
         "engines": engines,
+        "page": body.page,
         "items": [_item_dict(it, with_content) for it in resp.items],
         "answers": resp.answers,  # infobox/answer 透出(不再丢弃)
         "search": resp.meta.search.model_dump(),
-        "fetch": resp.meta.fetch.model_dump(),
+        "fetch": fetch.model_dump(),
+        # usage:用量账目(配额强制需存储,暂只暴露用量;细账见 search/fetch)
+        "usage": {"searches": 1, "engines_queried": len(engines),
+                  "fetches": fetch.requested, "results_ok": fetch.ok},
     }
     ignored = _ignored(body)
     if ignored:  # 未知/拼错参数如实回报(底线②)
@@ -240,7 +258,8 @@ async def create_research(body: ResearchCreate, request: Request):
         fetch_top_n=body.top_n, purify=body.purify, fetch_timeout=body.timeout,
         concurrency=body.concurrency, budget=body.budget,
         max_content_chars=body.max_content_chars, escalate=body.escalate,
-        mode=body.mode,
+        mode=body.mode, page=body.page,
+        include_domains=body.include_domains, exclude_domains=body.exclude_domains,
     )
     client: httpx.AsyncClient = request.app.state.http
     rid = f"res_{uuid.uuid4().hex}"

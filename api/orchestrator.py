@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from api import config, fetcher, rerank, searx_client
+from api import config, fetcher, filters, rerank, searx_client
 from api.models import (
     EngineFailure,
     FetchMeta,
@@ -211,6 +211,7 @@ async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
                 language=req.language,
                 time_range=req.time_range,
                 safesearch=req.safesearch,
+                page=req.page,
             ),
             timeout=req.budget,  # None = 不限,搜索自身仍有 SEARCH_TIMEOUT
         )
@@ -233,6 +234,8 @@ async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
     # 词汇重排:按 (query,title,snippet) 相关性排候选,再取池——否则 SearXNG 的
     # position 分把离题/空壳结果排在前面,fast 的凑够即停会系统性抓到它们(搜索质量批)
     ranked = rerank.rerank(req.q, outcome.results)
+    # 域过滤(产品差距批 #9):在选池前按 include/exclude 过滤,使抓取只发生在允许的域上
+    ranked = filters.filter_by_domain(ranked, req.include_domains, req.exclude_domains)
     candidates = select_candidates(ranked, pool_size)
     search_meta = SearchMeta(
         engines_requested=engines,

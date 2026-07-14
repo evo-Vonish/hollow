@@ -159,6 +159,7 @@ async def search(
     language: str = "auto",
     time_range: str | None = None,
     safesearch: int = 0,
+    page: int = 1,
 ) -> SearchOutcome:
     safe_q, sanitized = sanitize_bang(q)
     if not safe_q:
@@ -171,7 +172,7 @@ async def search(
         "format": "json",
         "language": language,
         "safesearch": str(safesearch),
-        "pageno": "1",
+        "pageno": str(max(1, page)),  # 分页(产品差距批 #9);SearXNG 原生 pageno
         "engines": ",".join(engines),
     }
     if categories:
