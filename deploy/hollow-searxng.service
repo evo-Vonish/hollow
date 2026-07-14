@@ -1,0 +1,25 @@
+# hollow SearXNG 后端(仅监听 localhost:8888,由网关反代前置)。
+# 安装:cp deploy/hollow-searxng.service /etc/systemd/system/  然后按实际路径改 /opt/hollow。
+[Unit]
+Description=hollow SearXNG (search backend, localhost only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hollow
+Group=hollow
+WorkingDirectory=/opt/hollow
+Environment=SEARXNG_SETTINGS_PATH=/opt/hollow/searxng/settings.yml
+Environment=PYTHONPATH=/opt/hollow/vendor/searxng
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/hollow/.venv-searx/bin/python -m searx.webapp
+Restart=on-failure
+RestartSec=3
+# 基础沙箱化(按需收紧)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

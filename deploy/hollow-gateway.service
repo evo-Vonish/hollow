@@ -1,0 +1,30 @@
+# hollow API 网关(监听 localhost:8080,由 nginx/caddy 反代做 TLS)。
+# 安装:cp deploy/hollow-gateway.service /etc/systemd/system/  然后按实际路径改 /opt/hollow。
+# 密钥放 /etc/hollow/gateway.env(chmod 600),别写进本文件。
+[Unit]
+Description=hollow API gateway
+After=network-online.target hollow-searxng.service
+Wants=network-online.target
+Requires=hollow-searxng.service
+
+[Service]
+Type=simple
+User=hollow
+Group=hollow
+WorkingDirectory=/opt/hollow
+Environment=PYTHONUNBUFFERED=1
+Environment=HOLLOW_LOG_LEVEL=INFO
+# 机密(HOLLOW_API_KEY 等)从此文件读,600 权限;示例见 deploy/gateway.env.example
+EnvironmentFile=/etc/hollow/gateway.env
+# ⚠️ 生产**直连**(不设 HTTP(S)_PROXY):静态档 DNS-pin(CURLOPT_RESOLVE)只对直连生效,
+#    走前向代理时 DNS 由代理接管、钉失效。故生产别注入代理环境变量。
+# ⚠️ --workers 1:在飞限流/上游闸/浏览器闸都是**进程内**状态,多 worker 会各算各的、闸失效。
+#    横向扩展需把这些状态挪到共享存储(Redis)——见 docs/design/07 的"扩展"节。
+ExecStart=/opt/hollow/.venv-api/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 8080 --workers 1
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
