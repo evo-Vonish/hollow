@@ -144,6 +144,7 @@ async def create_search(body: SearchCreate, request: Request):
         engines_requested=engines,
         engines_used=outcome.engines_used,
         engines_failed=outcome.engines_failed,
+        engines_no_results=outcome.engines_no_results,
         results_total=len(outcome.results),
         took_ms=outcome.took_ms,
         q_sanitized=outcome.q_sanitized,
@@ -280,8 +281,25 @@ async def create_research(body: ResearchCreate, request: Request):
             "id": rid, "created": created,
             "search": search_meta.model_dump(), "selected": selected,
         })
+        # 心跳:抓取慢时事件之间可能空闲数十秒,反代会掐断空闲连接(审查 #6)。这里用一个
+        # 常驻的 __anext__ 任务,每 SSE_HEARTBEAT_SECS 秒没等到新事件就发一帧注释心跳——
+        # **不 cancel** 该任务(wait 超时只是没就绪),故不会破坏事件生成器或误取消底层抓取。
+        agen = events.__aiter__()
+        nxt: asyncio.Task | None = None
         try:
-            async for event in events:
+            while True:
+                if nxt is None:
+                    nxt = asyncio.ensure_future(agen.__anext__())
+                done, _pending = await asyncio.wait({nxt}, timeout=config.SSE_HEARTBEAT_SECS)
+                if not done:
+                    yield ": heartbeat\n\n"  # SSE 注释行:客户端忽略,但让连接保持活跃
+                    continue
+                try:
+                    event = nxt.result()
+                except StopAsyncIteration:
+                    break
+                finally:
+                    nxt = None
                 if event[0] == "item":
                     _, index, item = event
                     yield _frame({
@@ -298,6 +316,16 @@ async def create_research(body: ResearchCreate, request: Request):
                     })
             yield "data: [DONE]\n\n"
         finally:
+            # 断连/收尾:先取消并等挂起的 __anext__ 结束,否则对"仍在运行"的生成器 aclose 会
+            # 抛 RuntimeError(async generator already running)。等它 unwind 完再 aclose。
+            if nxt is not None:
+                nxt.cancel()
+                try:
+                    await nxt
+                except (asyncio.CancelledError, StopAsyncIteration):
+                    pass
+                except Exception:  # 收尾阶段吞掉底层异常,不掩盖真正的断连原因
+                    pass
             await events.aclose()  # 客户端断连时收尾,取消未完成的抓取任务
 
     return StreamingResponse(_sse(), media_type="text/event-stream",

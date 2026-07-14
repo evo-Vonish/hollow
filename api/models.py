@@ -65,6 +65,7 @@ class SearchMeta(BaseModel):
     engines_requested: list[str]
     engines_used: list[str]
     engines_failed: list[EngineFailure]
+    engines_no_results: list[str] = []  # 请求了但零产出零报错(零匹配或静默失败,不可区分;非确定失败)
     results_total: int
     took_ms: int
     q_sanitized: bool = False  # bang/filter 防护(!/:/< 前缀 token)是否改写过 q

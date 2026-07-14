@@ -35,6 +35,8 @@ SEARCH_TIMEOUT: float = _env_float("SEARCH_TIMEOUT", 20.0)
 SEARX_MAX_CONCURRENCY: int = _env_int("HOLLOW_SEARX_MAX_CONCURRENCY", 4)
 # 同时在飞的"重"端点(research/fetch/v0)上限;超限直接 429(shed load),而非让所有人一起变慢。
 MAX_INFLIGHT_HEAVY: int = _env_int("HOLLOW_MAX_INFLIGHT_HEAVY", 8)
+# SSE 心跳间隔(秒):事件间隔超过它就发一帧注释心跳,防反代把空闲连接掐断(生产就绪批 #6)。
+SSE_HEARTBEAT_SECS: float = _env_float("HOLLOW_SSE_HEARTBEAT_SECS", 15.0)
 
 # TLS 指纹模拟:本地/VPS 直连默认 chrome(2026-07-06 本地实测代理隧道下也可用);
 # 特殊网络环境(如 MITM egress 代理)设 HOLLOW_IMPERSONATE=none 关闭。

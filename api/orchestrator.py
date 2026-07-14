@@ -238,6 +238,7 @@ async def run_research_events(req: ResearchRequest, client: httpx.AsyncClient):
         engines_requested=engines,
         engines_used=outcome.engines_used,
         engines_failed=outcome.engines_failed,
+        engines_no_results=outcome.engines_no_results,
         results_total=len(outcome.results),
         took_ms=outcome.took_ms,
         q_sanitized=outcome.q_sanitized,

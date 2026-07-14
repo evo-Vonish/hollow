@@ -75,6 +75,12 @@ data: [DONE]
 
 搜索阶段错误发生在开流前,走标准 HTTP 错误;开流后每条抓完即 item 事件;
 够了/预算到的候选不产 item,计入 completed 的 `cancelled`。客户端断连时服务端取消未完成任务。
+**心跳**:事件间隔超过 `SSE_HEARTBEAT_SECS`(默认 15s)就发一帧 SSE 注释 `: heartbeat`(客户端忽略),
+防反代把抓取慢时的空闲连接掐断(生产就绪批 #6);不 cancel 取值任务,故不破坏事件流。
+
+**搜索账目里的引擎三分(底线②,契约健壮批 #8)**:`engines_used`(有产出)/ `engines_failed`(SearXNG
+明确报错,确定失败)/ `engines_no_results`(请求了但零产出零报错——**零匹配或静默失败不可区分**,故单列、
+不再武断塞进 `engines_failed` 污染账本)。三者都显式,不静默丢弃。
 
 ### POST /v1/fetch —— 按 URL 直取:抓取 + 净化,不经搜索(2026-07-14)
 
@@ -143,6 +149,10 @@ scenes 现有 9 个:general / knowledge / dev / academic / news / social / image
 | 400 | `invalid_search_param` | SearXNG 判定透传参数非法(如 `time_range`/`language` 取值错);此前误报 502 |
 | 400 | `invalid_url` | /v1/fetch 点名了非 http(s) 绝对 URL(消息指明第几条) |
 | 401 | `invalid_api_key` | HOLLOW_API_KEY 已设置且 Bearer 不匹配 |
+| 404 | `not_found` | 路径不存在(统一封套,不裸 `{"detail":...}`) |
+| 405 | `method_not_allowed` | 方法不对(如 GET /v1/research) |
+| 429 | `too_many_requests` | 在飞重端点超 `MAX_INFLIGHT_HEAVY`,shed load(带 `Retry-After`) |
+| 500 | `internal_error` | 未捕获异常兜底;不泄漏堆栈,详情进服务端日志 |
 | 502 | `upstream_unavailable` | SearXNG 不可达/5xx/非 JSON(真上游故障) |
 
 **两个响应级字段(禁止静默丢弃 · 底线②):**

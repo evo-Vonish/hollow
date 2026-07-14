@@ -92,6 +92,7 @@ class SearchOutcome:
     answers: list[dict] = field(default_factory=list)
     engines_used: list[str] = field(default_factory=list)
     engines_failed: list[EngineFailure] = field(default_factory=list)
+    engines_no_results: list[str] = field(default_factory=list)  # 请求了但零产出零报错(歧义,见 reconcile)
     took_ms: int = 0
     q_sanitized: bool = False
 
@@ -125,11 +126,16 @@ def _collect_used_engines(payload: dict) -> set[str]:
     return used
 
 
-def reconcile(requested: list[str], payload: dict) -> tuple[list[str], list[EngineFailure]]:
-    """失败对账:unresponsive_engines + 「请求集 − 结果集 − 失败集」差集兜底。
+def reconcile(
+    requested: list[str], payload: dict
+) -> tuple[list[str], list[EngineFailure], list[str]]:
+    """对账:返回 (engines_used, engines_failed, engines_no_results)。
 
-    差集兜底抓的是"引擎既没产出也没报错"的静默失败(bing 直连实测出现过),
-    以及 engines= 点名无效被 SearXNG 悄悄回退默认集的情况。
+    - engines_failed:SearXNG 明确报错的引擎(unresponsive_engines)——**确定失败**。
+    - engines_no_results:请求了但既没产出也没报错的引擎。**从响应无法区分**"引擎健康但本次
+      零匹配"与"静默失败"(bing 直连实测的 0 条无报错、或 engines= 点名无效被悄悄回退)——
+      故单列、诚实标注歧义,不再武断塞进 engines_failed 污染账本(审查 #8 假阳性)。
+    两者都不静默丢弃(底线②):有就显式列出。
     """
     used = _collect_used_engines(payload)
     failed: dict[str, str] = {}
@@ -139,11 +145,9 @@ def reconcile(requested: list[str], payload: dict) -> tuple[list[str], list[Engi
             failed[str(entry[0])] = str(entry[1])
         elif isinstance(entry, str):
             failed[entry] = "unresponsive"
-    for engine in requested:
-        if engine not in used and engine not in failed:
-            failed[engine] = "no results and no error reported (silent failure)"
+    no_results = sorted(e for e in requested if e not in used and e not in failed)
     failures = [EngineFailure(engine=e, reason=r) for e, r in sorted(failed.items())]
-    return sorted(used), failures
+    return sorted(used), failures, no_results
 
 
 async def search(
@@ -208,7 +212,7 @@ async def search(
             f"SearXNG /search returned non-JSON body: {resp.text[:200]!r}"
         ) from e
 
-    used, failures = reconcile(engines, payload)
+    used, failures, no_results = reconcile(engines, payload)
     if failures:  # 引擎失败入日志(诊断自伤 DoS 熔断、静默失败;底线③运维溯源)
         log.info("searxng engine failures (q=%r): %s", safe_q[:80],
                  ", ".join(f"{f.engine}={f.reason[:40]}" for f in failures))
@@ -218,6 +222,7 @@ async def search(
         answers=payload.get("answers", []) or [],
         engines_used=used,
         engines_failed=failures,
+        engines_no_results=no_results,
         took_ms=took_ms,
         q_sanitized=sanitized,
     )

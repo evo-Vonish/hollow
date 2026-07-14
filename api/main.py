@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api import auth, config, fetcher, orchestrator
 from api.logging_setup import log, setup_logging
@@ -119,6 +120,50 @@ async def _validation_error(request, exc: RequestValidationError):
             "type": "invalid_request_error",
             "param": param,
             "code": "invalid_parameter",
+        }},
+    )
+
+
+# 状态码 → OpenAI 风格 code(契约健壮批 #5:404/405/500 也走统一封套,不再裸 {"detail":...})
+_STATUS_CODE = {
+    400: "invalid_request", 401: "invalid_api_key", 403: "forbidden",
+    404: "not_found", 405: "method_not_allowed", 429: "too_many_requests",
+    502: "upstream_unavailable", 503: "service_unavailable",
+}
+
+
+def _err_type(status: int) -> str:
+    if status == 429:
+        return "rate_limit_error"
+    if status >= 500:
+        return "api_error"
+    return "invalid_request_error"
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_exc(request: Request, exc: StarletteHTTPException):
+    """所有 HTTPException(含 Starlette 路由的 404/405 与 /v0 抛的 400/502)统一转错误封套。
+    FastAPI 的 HTTPException 是其子类,一并覆盖。"""
+    return UTF8JSONResponse(
+        status_code=exc.status_code,
+        content={"error": {
+            "message": str(exc.detail),
+            "type": _err_type(exc.status_code),
+            "param": None,
+            "code": _STATUS_CODE.get(exc.status_code, "http_error"),
+        }},
+        headers=getattr(exc, "headers", None) or None,
+    )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exc(request: Request, exc: Exception):
+    """兜底 500:不泄漏内部堆栈给客户端(只回通用消息);详情已由 access-log 中间件记进服务端日志。"""
+    return UTF8JSONResponse(
+        status_code=500,
+        content={"error": {
+            "message": "Internal server error.",
+            "type": "api_error", "param": None, "code": "internal_error",
         }},
     )
 
