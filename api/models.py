@@ -11,7 +11,7 @@ FetchStatus = Literal["ok", "failed", "timeout", "blocked", "no_content"]
 
 
 class ResearchRequest(BaseModel):
-    q: str = Field(min_length=1, description="搜索词")
+    q: str = Field(min_length=1, max_length=config.QUERY_MAX_LEN, description="搜索词")
     engines: list[str] | None = Field(
         default=None, description="点名引擎;缺省用精选默认集"
     )

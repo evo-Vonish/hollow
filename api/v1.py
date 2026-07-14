@@ -86,7 +86,7 @@ def _resolve_engines(scenes: list[str] | None,
 # ---------- POST /v1/search(纯召回) ----------
 
 class SearchCreate(BaseModel):
-    query: str = Field(min_length=1)
+    query: str = Field(min_length=1, max_length=config.QUERY_MAX_LEN)
     scenes: list[str] | None = Field(default=None, description="场景,可多选,取并集")
     engines: list[str] | None = Field(default=None, description="自定义引擎,并入场景集")
     language: str = "auto"
@@ -179,7 +179,7 @@ async def create_search(body: SearchCreate, request: Request):
 # ---------- POST /v1/research(搜索+抓取+净化) ----------
 
 class ResearchCreate(BaseModel):
-    query: str = Field(min_length=1, description="研究问题")
+    query: str = Field(min_length=1, max_length=config.QUERY_MAX_LEN, description="研究问题")
     scenes: list[str] | None = Field(default=None, description="场景,可多选,取并集")
     engines: list[str] | None = Field(default=None, description="自定义引擎,并入场景集")
     top_n: int = Field(default=config.FETCH_TOP_N_DEFAULT, ge=1,

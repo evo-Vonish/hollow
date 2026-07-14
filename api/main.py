@@ -36,6 +36,34 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="hollow", version="0.0.1", lifespan=lifespan,
               default_response_class=UTF8JSONResponse)
+# 尾斜杠一致化(OpenAPI/契约收尾):不做 307 跳转;/v1/search/ 直接 404(走错误封套),
+# 一个规范 URL,少一次让部分客户端丢 body 的重定向惊喜。
+app.router.redirect_slashes = False
+
+
+def _custom_openapi():
+    """在自动 schema 上补声明 Bearer 鉴权(鉴权是手写的 auth_error,FastAPI 不会自动标注)。
+    /docs 出现 Authorize 按钮,/v1/* 标注需要 bearerAuth——HOLLOW_API_KEY 未设时其实开放,
+    但契约层如实声明鉴权方式。"""
+    if app.openapi_schema:
+        return app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+    schema = get_openapi(
+        title=app.title, version=app.version, routes=app.routes,
+        description="hollow —— AI 研究浏览器搜索 API(参考 OpenAI 的信封/错误/SSE,自家域模型)。"
+                    "设置 HOLLOW_API_KEY 后 /v1/* 需 `Authorization: Bearer <key>`。",
+    )
+    schema.setdefault("components", {}).setdefault("securitySchemes", {})["bearerAuth"] = {
+        "type": "http", "scheme": "bearer",
+        "description": "HOLLOW_API_KEY 设置时启用;未设置则 /v1 开放。/v0、/healthz 为内部面。",
+    }
+    for path, item in schema.get("paths", {}).items():
+        if path.startswith("/v1/"):
+            for method, op in item.items():
+                if isinstance(op, dict) and method in ("get", "post", "put", "delete", "patch"):
+                    op.setdefault("security", [{"bearerAuth": []}])
+    app.openapi_schema = schema
+    return schema
 
 
 class _InflightLimiter:
@@ -103,6 +131,7 @@ async def _access_log(request: Request, call_next):
 from api.v1 import router as _v1_router  # noqa: E402
 
 app.include_router(_v1_router)
+app.openapi = _custom_openapi  # 路由已挂,openapi schema 惰性生成时能拿到全部 /v1 路径
 
 
 @app.exception_handler(RequestValidationError)

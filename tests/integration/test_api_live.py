@@ -172,6 +172,25 @@ def test_405_envelope(client):
     assert r.json()["error"]["code"] == "method_not_allowed"
 
 
+# ---------- OpenAPI / 契约收尾 ----------
+
+def test_trailing_slash_404_not_307(client):
+    # redirect_slashes=False:/v1/search/ → 404 封套,而非 307 跳转
+    r = client.post(f"{BASE}/v1/search/", json={"query": "x"})
+    assert r.status_code == 404 and r.json()["error"]["code"] == "not_found"
+
+
+def test_query_too_long_400(client):
+    r = client.post(f"{BASE}/v1/search", json={"query": "x" * 5000})
+    assert r.status_code == 400 and r.json()["error"]["code"] == "invalid_parameter"
+
+
+def test_openapi_declares_bearer(client):
+    schema = client.get(f"{BASE}/openapi.json").json()
+    assert "bearerAuth" in schema["components"]["securitySchemes"]
+    assert schema["paths"]["/v1/search"]["post"].get("security") == [{"bearerAuth": []}]
+
+
 # ---------- 资源治理:429 shed-load(资源治理批 #4) ----------
 
 def test_inflight_429_shed_load(client):

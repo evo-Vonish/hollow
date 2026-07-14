@@ -14,7 +14,7 @@
 | 对象封套 | `id: "res_/srch_<hex>"`、`object: "research"/"search"`、`created`(unix 秒);条目带 `object: "research.item"/"search.result"` |
 | 列表形状 | `GET /v1/engines`、`GET /v1/scenes` 统一 `{"object":"list","data":[...]}` |
 | 错误形状 | `{"error": {message, type, param, code}}` + 正确的 HTTP 状态码(含全局校验错误 handler,无裸 422) |
-| Bearer 鉴权 | `HOLLOW_API_KEY` 设置时校验(仅 /v1/*;/v0、/healthz 是内部面) |
+| Bearer 鉴权 | `HOLLOW_API_KEY` 设置时校验(仅 /v1/*;/v0、/healthz 是内部面)。OpenAPI 已声明 `bearerAuth`,`/docs` 可 Authorize |
 | `stream: true` → SSE | **语义化事件流**(不是 token delta),每条来源完成即推送 |
 | 按能力拆资源 | completions/embeddings 之于 OpenAI ≈ search/research 之于 hollow |
 | usage 账目 | `search` + `fetch` 双侧账目(召回/引擎失败/ok/failed/timeout/blocked/耗时) |
@@ -162,6 +162,10 @@ scenes 现有 9 个:general / knowledge / dev / academic / news / social / image
 | 429 | `too_many_requests` | 在飞重端点超 `MAX_INFLIGHT_HEAVY`,shed load(带 `Retry-After`) |
 | 500 | `internal_error` | 未捕获异常兜底;不泄漏堆栈,详情进服务端日志 |
 | 502 | `upstream_unavailable` | SearXNG 不可达/5xx/非 JSON(真上游故障) |
+
+> **契约细节(OpenAPI 收尾)**:`query` 上限 `QUERY_MAX_LEN`(默认 500 字符),超长 → 400 `invalid_parameter`;
+> **尾斜杠不做 307 跳转**(`redirect_slashes=False`):`/v1/search/` 直接 404 `not_found`(封套),一个规范 URL;
+> OpenAPI schema 声明了 `bearerAuth` 安全方案,`/docs` 出现 Authorize 按钮。
 
 **两个响应级字段(禁止静默丢弃 · 底线②):**
 - `answers`:SearXNG 的 infobox/answer 归一后透出(`[{object:"answer",type:"infobox"|"answer",title,content,url,img_src,engine}]`)。一个只产出 infobox 的查询(如 wikipedia+"Python")不再是 `results:[]` 的假失败。/v1/search 与 /v1/research 均有。
