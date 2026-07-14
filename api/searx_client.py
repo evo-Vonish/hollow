@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from api import config
+from api.logging_setup import log
 from api.models import EngineFailure
 
 # 不带这组头,部分引擎(尤其 ddg)行为异常;与两轮实测保持一致
@@ -178,6 +179,7 @@ async def search(
             timeout=config.SEARCH_TIMEOUT,
         )
     except httpx.HTTPError as e:
+        log.warning("searxng unreachable (q=%r engines=%s): %r", safe_q[:80], engines, e)
         raise SearxUnavailableError(f"SearXNG unreachable: {e!r}") from e
     took_ms = int((time.perf_counter() - t0) * 1000)
 
@@ -201,6 +203,9 @@ async def search(
         ) from e
 
     used, failures = reconcile(engines, payload)
+    if failures:  # 引擎失败入日志(诊断自伤 DoS 熔断、静默失败;底线③运维溯源)
+        log.info("searxng engine failures (q=%r): %s", safe_q[:80],
+                 ", ".join(f"{f.engine}={f.reason[:40]}" for f in failures))
     return SearchOutcome(
         results=payload.get("results", []) or [],
         infoboxes=payload.get("infoboxes", []) or [],

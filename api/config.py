@@ -21,6 +21,9 @@ def _env_float(name: str, default: float) -> float:
 
 SEARXNG_URL: str = _env_str("SEARXNG_URL", "http://127.0.0.1:8888")
 
+# 可观测性(2026-07-15,生产就绪批):应用日志级别。run_local 会把 stdout/stderr 落成可见日志文件。
+LOG_LEVEL: str = _env_str("HOLLOW_LOG_LEVEL", "INFO")
+
 # OpenAI 兼容层(/v1/*)的 Bearer 鉴权;空 = 不校验(本机开发)。/v0 不受影响。
 API_KEY: str = _env_str("HOLLOW_API_KEY", "")
 
