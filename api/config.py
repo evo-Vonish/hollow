@@ -30,6 +30,12 @@ API_KEY: str = _env_str("HOLLOW_API_KEY", "")
 # SearXNG 搜索调用超时(秒)。settings.yml max_request_timeout=15,留余量。
 SEARCH_TIMEOUT: float = _env_float("SEARCH_TIMEOUT", 20.0)
 
+# 资源治理(2026-07-15,生产就绪批 #2):防自伤 DoS 与尾延迟放大。
+# 同时打向 SearXNG 的搜索数上限:此前零节流,12 并发就把某引擎打进 2min 全局熔断连累后续。
+SEARX_MAX_CONCURRENCY: int = _env_int("HOLLOW_SEARX_MAX_CONCURRENCY", 4)
+# 同时在飞的"重"端点(research/fetch/v0)上限;超限直接 429(shed load),而非让所有人一起变慢。
+MAX_INFLIGHT_HEAVY: int = _env_int("HOLLOW_MAX_INFLIGHT_HEAVY", 8)
+
 # TLS 指纹模拟:本地/VPS 直连默认 chrome(2026-07-06 本地实测代理隧道下也可用);
 # 特殊网络环境(如 MITM egress 代理)设 HOLLOW_IMPERSONATE=none 关闭。
 _imp = _env_str("HOLLOW_IMPERSONATE", "chrome").strip().lower()
@@ -42,8 +48,10 @@ REQUEST_CONCURRENCY_MAX: int = 8
 # ---- 浏览器升级链(2026-07-07 拍板:blocked+failed 触发,三档 static→dynamic→stealthy) ----
 # 浏览器是重量级资源:进程级并发闸 + 专用线程池都用这个数
 BROWSER_CONCURRENCY: int = _env_int("HOLLOW_BROWSER_CONCURRENCY", 2)
-# 单请求可同时占用的浏览器升级数上限:防止一个 blocked 密集的请求垄断全局浏览器槽
-REQUEST_BROWSER_CONCURRENCY: int = _env_int("HOLLOW_REQUEST_BROWSER_CONCURRENCY", 2)
+# 单请求可同时占用的浏览器升级数上限:必须 < 全局 BROWSER_CONCURRENCY 才真能防单请求垄断
+# (审查 #3:此前默认 2 == 全局 2,防垄断形同虚设)。默认 1:一个请求一次只占一个浏览器槽,
+# 第二个槽永远留给并发请求。
+REQUEST_BROWSER_CONCURRENCY: int = _env_int("HOLLOW_REQUEST_BROWSER_CONCURRENCY", 1)
 # 浏览器档单 URL 超时(秒;Scrapling 浏览器 API 内部单位是毫秒,换算在 fetcher 里做)。
 # dynamic 与 stealthy 同款:本版**不开 solve_cloudflare**(其内部无上限循环不可中断,
 # 会导致线程泄漏——审查确认),故所有浏览器操作都受 playwright 自身 timeout 硬约束。

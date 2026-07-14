@@ -37,6 +37,52 @@ app = FastAPI(title="hollow", version="0.0.1", lifespan=lifespan,
               default_response_class=UTF8JSONResponse)
 
 
+class _InflightLimiter:
+    """在飞重端点计数闸。单线程 asyncio:check→自增之间无 await,故无需锁。"""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self.current = 0
+
+    def try_acquire(self) -> bool:
+        if self.current >= self.limit:
+            return False
+        self.current += 1
+        return True
+
+    def release(self) -> None:
+        if self.current > 0:
+            self.current -= 1
+
+
+# 抓取密集的重端点(search 只召回不算;其上游压力由 SEARX_GATE 单独管)
+_HEAVY_PATHS = frozenset({"/v1/research", "/v1/fetch", "/v0/research"})
+_inflight = _InflightLimiter(config.MAX_INFLIGHT_HEAVY)
+
+
+@app.middleware("http")
+async def _inflight_guard(request: Request, call_next):
+    """重端点在飞上限:超限直接 429 shed load(审查 #4:不让 12 并发把所有人尾延迟拉大 10 倍)。
+    轻端点(healthz/search/engines/scenes)不受限。定义在 _access_log 之前 → 后者仍是最外层、能记到 429。"""
+    heavy = request.method == "POST" and request.url.path in _HEAVY_PATHS
+    if not heavy:
+        return await call_next(request)
+    if not _inflight.try_acquire():
+        log.warning("inflight cap %d reached -> 429 %s", config.MAX_INFLIGHT_HEAVY, request.url.path)
+        return UTF8JSONResponse(
+            status_code=429,
+            content={"error": {
+                "message": f"Server at capacity ({config.MAX_INFLIGHT_HEAVY} concurrent heavy "
+                           f"requests in flight). Retry shortly.",
+                "type": "rate_limit_error", "param": None, "code": "too_many_requests"}},
+            headers={"Retry-After": "1"},
+        )
+    try:
+        return await call_next(request)
+    finally:
+        _inflight.release()
+
+
 @app.middleware("http")
 async def _access_log(request: Request, call_next):
     """请求访问日志(底线③运维溯源):方法/路径/状态/耗时。异常先记再抛给 500 handler。"""

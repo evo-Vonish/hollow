@@ -9,6 +9,7 @@ docs/research/2026-07-06-local-env-verification.md):
   对账时必须算上,否则会被差集误判为失败
 - bing 直连出现过"0 条且无报错"的静默失败 → 差集兜底不可省
 """
+import asyncio
 import time
 from dataclasses import dataclass, field
 
@@ -17,6 +18,10 @@ import httpx
 from api import config
 from api.logging_setup import log
 from api.models import EngineFailure
+
+# 上游节流(生产就绪批 #2):同时打向 SearXNG 的搜索数上限。超出的排队等待(背压),
+# 避免一拥而上把某引擎打进 SearXNG 的 2min 全局熔断。模块级,进程内所有请求共享。
+_SEARX_GATE = asyncio.Semaphore(config.SEARX_MAX_CONCURRENCY)
 
 # 不带这组头,部分引擎(尤其 ddg)行为异常;与两轮实测保持一致
 BROWSER_HEADERS = {
@@ -172,12 +177,13 @@ async def search(
 
     t0 = time.perf_counter()
     try:
-        resp = await client.post(
-            f"{config.SEARXNG_URL}/search",
-            data=data,
-            headers=BROWSER_HEADERS,
-            timeout=config.SEARCH_TIMEOUT,
-        )
+        async with _SEARX_GATE:  # 上游并发闸:排队等待即背压,不一拥而上打熔断上游引擎
+            resp = await client.post(
+                f"{config.SEARXNG_URL}/search",
+                data=data,
+                headers=BROWSER_HEADERS,
+                timeout=config.SEARCH_TIMEOUT,
+            )
     except httpx.HTTPError as e:
         log.warning("searxng unreachable (q=%r engines=%s): %r", safe_q[:80], engines, e)
         raise SearxUnavailableError(f"SearXNG unreachable: {e!r}") from e
