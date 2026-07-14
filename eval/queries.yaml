@@ -1,0 +1,50 @@
+# 召回质量评测 query 集(2026-07-15)。跨场景代表性查询;note 是"好结果长什么样"的人工参考
+# (裁判不需要 note;它可做人工金标锚点)。加 query 时保持场景均衡、难度有梯度。
+- id: dev-asyncio
+  scene: dev
+  query: python asyncio event loop best practices
+  note: 好结果=realpython/官方 docs/优质博客讲 event loop 用法;差=离题 arxiv、纯 API 罗列
+- id: dev-rust-borrow
+  scene: dev
+  query: rust ownership and borrow checker explained
+  note: 好=rust book/优质教程讲所有权;差=无关 crate 页
+- id: dev-pg-index
+  scene: dev
+  query: postgres which index type to use btree gin gist
+  note: 好=对比 btree/gin/gist 适用场景的文档/博客
+- id: acad-attention
+  scene: academic
+  query: transformer attention mechanism explained
+  note: 好=Attention is All You Need / 讲解 self-attention 的权威;差=撤稿空壳、仅关键词命中的离题论文
+- id: acad-diffusion
+  scene: academic
+  query: diffusion models for image generation how they work
+  note: 好=DDPM/latent diffusion 原理讲解
+- id: acad-crispr
+  scene: academic
+  query: CRISPR Cas9 gene editing mechanism
+  note: 好=讲 Cas9 切割机制的权威来源
+- id: zh-libattery
+  scene: zh
+  query: 锂电池回收技术 湿法冶金
+  note: 好=讲锂电池回收/湿法冶金工艺的中文来源;差=电商页、无关新闻
+- id: zh-nabattery
+  scene: zh
+  query: 钠离子电池 正极材料 研究进展
+  note: 好=钠电池正极材料综述/研究;测 CJK bigram(钠离子↔钠)
+- id: zh-tax
+  scene: zh
+  query: 个人所得税 专项附加扣除 项目
+  note: 好=讲专项附加扣除项目的权威/政策解读
+- id: gen-sourdough
+  scene: general
+  query: how to make a sourdough starter from scratch
+  note: 好=可操作的养酵母教程
+- id: gen-headphones
+  scene: general
+  query: best noise cancelling headphones comparison
+  note: 好=对比评测;差=单品软文、纯电商
+- id: dev-k8s-probe
+  scene: dev
+  query: kubernetes liveness vs readiness probe difference
+  note: 好=讲两种探针区别的文档/博客

@@ -16,6 +16,9 @@ Thumbs.db
 # Logs
 *.log
 
+# 评测运行产物(基线 JSON 是本地跑出来的,不入库)
+eval/results/
+
 # Common build/dependency output (trim once the stack is chosen)
 node_modules/
 dist/
