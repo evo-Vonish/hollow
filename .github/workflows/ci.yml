@@ -12,11 +12,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # 单元测试网络无关,只需 api/ + tests/(cone 模式自动含根目录的 requirements*/pytest.ini);
-          # 不拉庞大的 vendor/,加快 checkout。
+          # 单元测试网络无关,只需 api/ + tests/ + data/(test_middleware 导入 api.main→registry 读
+          # data/engine_registry.yaml);cone 模式自动含根目录 requirements*/pytest.ini。不拉庞大 vendor/。
           sparse-checkout: |
             api
             tests
+            data
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

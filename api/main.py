@@ -89,43 +89,60 @@ _HEAVY_PATHS = frozenset({"/v1/research", "/v1/fetch", "/v0/research"})
 _inflight = _InflightLimiter(config.MAX_INFLIGHT_HEAVY)
 
 
-@app.middleware("http")
-async def _inflight_guard(request: Request, call_next):
-    """重端点在飞上限:超限直接 429 shed load(审查 #4:不让 12 并发把所有人尾延迟拉大 10 倍)。
-    轻端点(healthz/search/engines/scenes)不受限。定义在 _access_log 之前 → 后者仍是最外层、能记到 429。"""
-    heavy = request.method == "POST" and request.url.path in _HEAVY_PATHS
-    if not heavy:
-        return await call_next(request)
-    if not _inflight.try_acquire():
-        log.warning("inflight cap %d reached -> 429 %s", config.MAX_INFLIGHT_HEAVY, request.url.path)
-        return UTF8JSONResponse(
-            status_code=429,
-            content={"error": {
-                "message": f"Server at capacity ({config.MAX_INFLIGHT_HEAVY} concurrent heavy "
-                           f"requests in flight). Retry shortly.",
-                "type": "rate_limit_error", "param": None, "code": "too_many_requests"}},
-            headers={"Retry-After": "1"},
-        )
-    try:
-        return await call_next(request)
-    finally:
-        _inflight.release()
+class _ResourceAndAccessMiddleware:
+    """纯 ASGI 中间件:在飞重端点计数闸(429 shed-load)+ 访问日志。二合一,均以**真·响应完成**为界。
+
+    ⚠️ 为什么不用 @app.middleware("http"):它底层是 BaseHTTPMiddleware,call_next 在响应头 flush 时
+    就返回,**流式 body 尚未发完**。审查确认:那样 SSE(/v1/research stream)的槽位在抓取阶段开始前
+    就被释放、耗时也只量到头部——MAX_INFLIGHT_HEAVY 对最重的流式路径形同虚设,日志也失真(底线③)。
+    纯 ASGI 里 `await self.app(...)` 要等整个响应(含流式 body)发完/断连/异常才返回,故释放+日志落在真完成点。"""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+        heavy = method == "POST" and path in _HEAVY_PATHS
+        if heavy and not _inflight.try_acquire():
+            log.warning("inflight cap %d reached -> 429 %s", config.MAX_INFLIGHT_HEAVY, path)
+            resp = UTF8JSONResponse(
+                status_code=429,
+                content={"error": {
+                    "message": f"Server at capacity ({config.MAX_INFLIGHT_HEAVY} concurrent heavy "
+                               f"requests in flight). Retry shortly.",
+                    "type": "rate_limit_error", "param": None, "code": "too_many_requests"}},
+                headers={"Retry-After": "1"},
+            )
+            await resp(scope, receive, send)
+            return
+        t0 = time.perf_counter()
+        status = {"code": 0}
+
+        async def _send(message):
+            if message["type"] == "http.response.start":
+                status["code"] = message["status"]
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send)  # 直到整个响应(含流式 body)发完才返回
+        except Exception:
+            log.exception("%s %s -> unhandled error", method, path)  # 500 前留完整堆栈
+            raise
+        finally:
+            if heavy:
+                _inflight.release()  # 真完成点(流式 body 发完 / 断连 / 异常)才释放
+            code = status["code"]
+            if code:
+                dt = (time.perf_counter() - t0) * 1000
+                (log.warning if code >= 500 else log.info)(
+                    "%s %s -> %d (%.0fms)", method, path, code, dt)
 
 
-@app.middleware("http")
-async def _access_log(request: Request, call_next):
-    """请求访问日志(底线③运维溯源):方法/路径/状态/耗时。异常先记再抛给 500 handler。"""
-    t0 = time.perf_counter()
-    try:
-        response = await call_next(request)
-    except Exception:
-        dt = (time.perf_counter() - t0) * 1000
-        log.exception("%s %s -> unhandled (%.0fms)", request.method, request.url.path, dt)
-        raise
-    dt = (time.perf_counter() - t0) * 1000
-    lvl = log.warning if response.status_code >= 500 else log.info
-    lvl("%s %s -> %d (%.0fms)", request.method, request.url.path, response.status_code, dt)
-    return response
+app.add_middleware(_ResourceAndAccessMiddleware)
 
 # /v1 正式 API 面(OpenAI 风格的封套/错误/SSE,自家域模型;见 api/v1.py)
 from api.v1 import router as _v1_router  # noqa: E402

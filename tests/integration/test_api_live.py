@@ -205,3 +205,5 @@ def test_inflight_429_shed_load(client):
     codes = asyncio.run(fire(14))
     assert 429 in codes  # 超在飞上限的被 shed
     assert all(c in (200, 429) for c in codes)
+    # 注:此处 14 个同时到达,新旧代码都会 shed(前 8 个搜索阶段持槽);流式"body 阶段是否仍持槽"
+    # 的真正区分见 tests/test_middleware.py 的确定性单元测试。
