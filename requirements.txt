@@ -1,9 +1,13 @@
 # hollow API gateway(.venv-api)。SearXNG 进程另有 venv:
 #   .venv-searx = vendor/searxng/requirements.txt + tzdata(Windows 时区库)
-fastapi
-uvicorn
-httpx
-pydantic
-pyyaml
+# 版本已锁(2026-07-15,生产就绪打磨):对齐本地实测通过的版本,保证部署可复现。
+# 开发/CI 额外依赖见 requirements-dev.txt。
+fastapi==0.139.0
+uvicorn==0.50.0
+httpx==0.28.1
+pydantic==2.13.4
+starlette==1.3.1            # main.py 直接 import StarletteHTTPException(FastAPI 传递依赖,显式锁)
+pyyaml==6.0.3
 scrapling[fetchers]==0.4.10
-trafilatura
+curl_cffi==0.15.0          # fetcher.py 直接用(静态档 DNS-pin CURLOPT_RESOLVE);scrapling 也依赖它
+trafilatura==2.1.0

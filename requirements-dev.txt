@@ -1,0 +1,4 @@
+# 开发 / CI 额外依赖(在 .venv-api 里 pip install -r requirements.txt -r requirements-dev.txt)。
+# 单元测试网络无关,CI 无需起 SearXNG。
+-r requirements.txt
+pytest==9.1.1
