@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
         log.info("hollow gateway stopped")
 
 
-app = FastAPI(title="hollow", version="0.0.1", lifespan=lifespan,
+app = FastAPI(title="hollow", version="0.1.0", lifespan=lifespan,
               default_response_class=UTF8JSONResponse)
 # 尾斜杠一致化(OpenAPI/契约收尾):不做 307 跳转;/v1/search/ 直接 404(走错误封套),
 # 一个规范 URL,少一次让部分客户端丢 body 的重定向惊喜。

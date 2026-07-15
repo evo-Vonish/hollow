@@ -4,6 +4,30 @@
 > 产物在 `deploy/`:两个 systemd unit、`gateway.env.example`、`nginx-hollow.conf`。
 > ⚠️ 上线前务必读「四个必做」——尤其目标环境验证与阈值校准是本项目**从未在 Windows/GFW 之外做过**的。
 
+## v0.1.0 上线前检查清单(逐项打勾再发)
+
+**代码/依赖**
+- [ ] `git clone` 目标 commit(打了 `v0.1.0` tag),`pip install -r requirements.txt`(已锁版本,可复现)
+- [ ] `pytest` 单元套件绿(网络无关);CI 该 commit 绿
+
+**目标环境冒烟(本项目最大盲区)**
+- [ ] 真 Linux 机 `python -m scrapling install`(或 `playwright install chromium`),实抓一个 JS 重 SPA → 确认 dynamic/stealthy 档渲出正文
+- [ ] **不设** `HTTP(S)_PROXY`(生产直连)→ 静态档 DNS-pin 生效;`curl localhost:8080/v1/fetch` 抓个公网页 `fetch_status:ok`
+- [ ] 中文引擎(baidu/sogou/quark)在数据中心 IP 评估验证码/熔断,决定是否保留在默认集
+
+**安全**
+- [ ] `/etc/hollow/gateway.env` 设强 `HOLLOW_API_KEY`(chmod 600);`curl` 无 Bearer → 401
+- [ ] **egress 防火墙**:禁 hollow 主机出站到 RFC1918 / `169.254.169.254` / `::1` / `fc00::/7`(netguard 的兜底,补浏览器档/代理残留)
+- [ ] nginx TLS + `proxy_buffering off`(否则 SSE 被掐);`--workers 1`(进程内闸的硬约束)
+
+**上线后验证**
+- [ ] `curl 'localhost:8080/healthz?deep=1'` → searxng ok、报错引擎数正常
+- [ ] 跑一条真 `/v1/research` 流式 → 收到 SSE 事件 + `[DONE]`,`logs/gateway-*.log` 有完整访问日志(时长记到流结束,非 40ms)
+- [ ] 并发压一下 → 超 `MAX_INFLIGHT_HEAVY` 见 429(含流式路径,见 `tests/test_middleware.py` 修的那个 bug)
+
+> ⚠️ **底线④ 未达**:阈值(内容闸/rerank 权重/highlight)尚未按真实数据校准。初代**明确以"跑真实流量采数据、据此校准"为目的**上线,
+> 不是稳定终版。校准用 `eval/` 评测台(接 GLM 裁判)。召回质量已知短板见 docs/design/08。
+
 ## 目录布局(建议 /opt/hollow)
 
 ```
