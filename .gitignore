@@ -13,6 +13,9 @@ Thumbs.db
 .env.local
 .env.*.local
 
+# 本地 MCP 注册(引用机器绝对路径 + 私有服务器 MCP,不入公开仓库)
+.mcp.json
+
 # Logs
 *.log
 
