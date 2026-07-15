@@ -11,7 +11,7 @@
 - [ ] `pytest` 单元套件绿(网络无关);CI 该 commit 绿
 
 **目标环境冒烟(本项目最大盲区)**
-- [ ] 真 Linux 机 `python -m scrapling install`(或 `playwright install chromium`),实抓一个 JS 重 SPA → 确认 dynamic/stealthy 档渲出正文
+- [ ] 真 Linux 机 `.venv-api/bin/scrapling install`(或 `.venv-api/bin/playwright install chromium`),实抓一个 JS 重 SPA → 确认 dynamic/stealthy 档渲出正文
 - [ ] **不设** `HTTP(S)_PROXY`(生产直连)→ 静态档 DNS-pin 生效;`curl localhost:8080/v1/fetch` 抓个公网页 `fetch_status:ok`
 - [ ] 中文引擎(baidu/sogou/quark)在数据中心 IP 评估验证码/熔断,决定是否保留在默认集
 
@@ -64,7 +64,7 @@ curl -s 'localhost:8080/healthz?deep=1'   # 含 searxng_error_engines
 
 1. **锁依赖已做**:`requirements.txt` 已钉版本(2026-07-15)。部署用 `pip install -r requirements.txt`。
 2. **目标环境冒烟**(本项目最大盲区,过去只在 Windows+代理+GFW 下测):
-   - **浏览器档升级链**:`.venv-api/bin/python -m scrapling install`(或 `playwright install chromium`),
+   - **浏览器档升级链**:`.venv-api/bin/scrapling install`(或 `.venv-api/bin/playwright install chromium`),
      实抓一个 JS 重的 SPA,确认 dynamic/stealthy 档能渲出正文(此前从未端到端验过)。
    - **DNS-pin**:生产**直连**(别设 HTTP(S)_PROXY),确认静态档 CURLOPT_RESOLVE 钉生效(代理下会失效)。
    - **中文引擎**:baidu/sogou/quark 在数据中心 IP 常触发验证码熔断,评估是否保留在默认集。
