@@ -10,7 +10,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 from curl_cffi import CurlError
 from curl_cffi import requests as _cffi
@@ -116,6 +116,28 @@ def _static_get(url: str, pin: str | None, timeout_s: float, impersonate: str | 
         session.close()
 
 
+def _host_in_skip_domains(url: str) -> bool:
+    """域名(含子域)是否命中升档黑名单(config.ESCALATE_SKIP_DOMAINS)——与 filters 的域过滤同语义。"""
+    host = (urlsplit(url).hostname or "").lower()
+    return any(host == d or host.endswith("." + d) for d in config.ESCALATE_SKIP_DOMAINS)
+
+
+def _pdf_probe(current: str, pin: str | None, impersonate: str | None) -> bool:
+    """PDF 前置判定(QA 2026-07-22:慢速主机的 PDF 会把整段 curl 超时烧在下载上,且 timeout
+    不触发升档 → 零挽救)。对 .pdf 结尾的 URL 先发 5s HEAD 探 Content-Type,确认是 PDF 就
+    直接判 no_content 快速返回;HEAD 失败/拿不到类型则回退到正常 GET 路径(行为不变)。"""
+    session = _cffi.Session(curl_options={CurlOpt.RESOLVE: [pin]}) if pin else _cffi.Session()
+    try:
+        r = session.request("HEAD", current, impersonate=impersonate, timeout=5,
+                            allow_redirects=False, verify=True)
+        ct = (r.headers.get("content-type") or r.headers.get("Content-Type") or "").lower()
+        return "pdf" in ct
+    except Exception:
+        return False
+    finally:
+        session.close()
+
+
 def _fetch_sync(url: str, timeout_s: float, impersonate: str | None, do_purify: bool) -> FetchResult:
     """静态档:手动逐跳跟随重定向,每一跳 netguard 校验目的地 + DNS-pin(SSRF 防护,安全批 + 审查 #2)。
     对**原始 URL 和每个重定向目标**都做内网拒绝并钉 IP(curl 的 safe 模式做不到)。"""
@@ -127,6 +149,11 @@ def _fetch_sync(url: str, timeout_s: float, impersonate: str | None, do_purify: 
             tag = "" if current == url else f" (redirect→{current[:80]})"
             return FetchResult(url, "blocked", fetched_at=fetched_at,
                                error=f"SSRF guard{tag}: {reason}")
+        _path = current.split("?", 1)[0].lower()
+        if (_path.endswith(".pdf") or "/pdf/" in _path) and _pdf_probe(current, pin, impersonate):
+            return FetchResult(url, "no_content", fetched_at=fetched_at,
+                               error="PDF content (extraction not supported yet); "
+                                     "identified via HEAD probe, full download skipped")
         try:
             raw = _static_get(current, pin, timeout_s, impersonate)
         except CurlError as e:
@@ -277,8 +304,27 @@ async def fetch_one(
     if not escalate or result.status not in _ESCALATE_ON:
         return result
 
+    # SSRF 命中的 blocked:浏览器档 vet 同样会拦,升级纯属浪费槽位与时间(QA 2026-07-22:
+    # 还会在浏览器闸排队后把 blocked 误报成 timeout)——短路返回,保留原始原因。
+    if result.status == "blocked" and (result.error or "").startswith("SSRF guard"):
+        return result
+
+    # PDF 前置判定的 no_content:浏览器档拿到的同样是 PDF 字节流,升级必然同果——短路。
+    if result.status == "no_content" and "HEAD probe" in (result.error or ""):
+        return result
+
+    # 已知强反爬域(机房 IP 信誉层拦截):浏览器指纹伪装救不回,跳过升级链(config.ESCALATE_SKIP_DOMAINS)。
+    if result.status in _ESCALATE_ON and _host_in_skip_domains(url):
+        result.error = (result.error or "") + (
+            f" [escalation skipped: known hard anti-bot domain, see ESCALATE_SKIP_DOMAINS]")
+        return result
+
     history = [_attempt_summary(result)]
-    for tier in ("dynamic", "stealthy"):
+    # 对端 5xx:服务器侧错误,反检测指纹(stealthy)救不了,最多升一档 dynamic 兜底
+    # (QA 2026-07-22:三档逐级重试 5xx 会把整单预算烧光)。
+    tiers = ("dynamic",) if (result.http_status and 500 <= result.http_status < 600) \
+        else ("dynamic", "stealthy")
+    for tier in tiers:
         result = await _run_browser_tier(url, tier, browser_semaphore, purify)
         if result.status == "ok":
             return result

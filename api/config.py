@@ -57,6 +57,15 @@ BROWSER_CONCURRENCY: int = _env_int("HOLLOW_BROWSER_CONCURRENCY", 2)
 # (审查 #3:此前默认 2 == 全局 2,防垄断形同虚设)。默认 1:一个请求一次只占一个浏览器槽,
 # 第二个槽永远留给并发请求。
 REQUEST_BROWSER_CONCURRENCY: int = _env_int("HOLLOW_REQUEST_BROWSER_CONCURRENCY", 1)
+# 已知升档无益的强反爬域(2026-07-22 实测:机房 IP 信誉层拦截,浏览器指纹伪装救不回——
+# 知乎 403×3 档、B站 412×3、头条系/百度百科空壳×3)。static 失败后对这些域跳过浏览器升级,
+# 不白烧浏览器槽与 20-40s 预算;将来若接入住宅代理,可用环境变量清空本名单恢复升级。
+ESCALATE_SKIP_DOMAINS: frozenset = frozenset(
+    d.strip().lower()
+    for d in (os.environ.get("HOLLOW_ESCALATE_SKIP_DOMAINS")
+              or "zhihu.com,bilibili.com,toutiao.com,baike.baidu.com").split(",")
+    if d.strip()
+)
 # 浏览器档单 URL 超时(秒;Scrapling 浏览器 API 内部单位是毫秒,换算在 fetcher 里做)。
 # dynamic 与 stealthy 同款:本版**不开 solve_cloudflare**(其内部无上限循环不可中断,
 # 会导致线程泄漏——审查确认),故所有浏览器操作都受 playwright 自身 timeout 硬约束。

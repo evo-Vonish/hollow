@@ -48,8 +48,14 @@ def _custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
     from fastapi.openapi.utils import get_openapi
+    # 内部面(/v0、/healthz)不进公开 schema(QA 2026-07-22:免鉴权窗口期 openapi.json
+    # 会把内部端点的完整请求模型广告给公网)。端点本身仍在,只是不在 /docs、/openapi.json 出现。
+    _public_routes = [
+        r for r in app.routes
+        if not getattr(r, "path", "").startswith("/v0") and getattr(r, "path", "") != "/healthz"
+    ]
     schema = get_openapi(
-        title=app.title, version=app.version, routes=app.routes,
+        title=app.title, version=app.version, routes=_public_routes,
         description="hollow —— AI 研究浏览器搜索 API(参考 OpenAI 的信封/错误/SSE,自家域模型)。"
                     "设置 HOLLOW_API_KEY 后 /v1/* 需 `Authorization: Bearer <key>`。",
     )
@@ -246,11 +252,34 @@ async def _searx_error_engines() -> int | None:
     return None
 
 
+def _validate_v0_engines(engines: list[str] | None):
+    """/v0 引擎点名校验与 /v1 完全对齐(QA 2026-07-22:此前 /v0 不校验,未知引擎被
+    SearXNG 静默回退默认集、账目看似 honored——请求与执行脱节;且错误 code 与 /v1 两套)。
+    通过返回 None;不通过返回与 /v1 同款的错误封套。"""
+    if not engines:
+        return None
+    from api import registry
+    from api.v1 import _error  # 复用 /v1 同款封套与文案,保持两个面一致
+    for name in engines:
+        if name in registry.REMOVED:
+            return _error(400,
+                          f"Engine '{name}' is removed ({registry.REMOVED[name]}), "
+                          f"see data/engine_registry.yaml.",
+                          "invalid_request_error", "engine_removed", "engines")
+        if name not in registry.ALL_NAMES:
+            return _error(400, f"Unknown engine '{name}'.",
+                          "invalid_request_error", "unknown_engine", "engines")
+    return None
+
+
 @app.post("/v0/research", response_model=ResearchResponse)
 async def research(req: ResearchRequest, request: Request):
     denied = auth.auth_error(request)  # 安全批:/v0 也受 HOLLOW_API_KEY 保护(此前完全敞开)
     if denied:
         return denied
+    bad_engines = _validate_v0_engines(req.engines)
+    if bad_engines is not None:
+        return bad_engines
     try:
         return await orchestrator.run_research(req, app.state.http)
     except (InvalidQueryError, SearxBadRequestError) as e:  # 客户端输入问题,不是上游故障
