@@ -1,45 +1,97 @@
-# hollow AI Research Browser — SearXNG 部署配置(最小覆盖)
-# 依据: docs/research/searxng/06-settings.md 推荐草稿 + 00-overview.md 行动清单
-# 部署方式: 本地 Python 进程直跑 vendor/searxng 源码(不依赖 Docker)
-# 用法: SEARXNG_SETTINGS_PATH=<本文件绝对路径> python -m searx.webapp
-
+# hollow SearXNG(Beijing 生产 · 串 Tokyo)—— 引擎路由按 2026-07-16 双 IP 矩阵重配
 use_default_settings: true
-
-general:
-  debug: false
-  instance_name: "hollow-search"
-  enable_metrics: true
-
+general: {debug: false, instance_name: "hollow-search", enable_metrics: true}
 server:
-  # 生产环境用 SEARXNG_SECRET 环境变量注入强随机值
-  secret_key: "dev-only-change-me-in-production"
+  secret_key: "268e879bed20e807f0547d78e5f482f55c02066b318e9f31a2f6334c87cf02a1"
   bind_address: "127.0.0.1"
   port: 8888
-  # 内部可信调用方: 关限流(免 valkey 依赖), 限流放网关层
   limiter: false
   public_instance: false
   base_url: false
-
 search:
-  # ★P1 头号必改: 开 JSON API, 否则 format=json 一律 403
-  formats:
-    - json
-    - html
+  formats: [json, html]
   safe_search: 0
-
 ui:
-  # 固定错误文案语言, 稳定 unresponsive_engines 的解析
   default_locale: "en"
-
 outgoing:
-  # 每引擎默认超时
-  request_timeout: 5.0
-  # ★显式配置硬上限, 否则网关传的 timeout_limit 只能压低不能主导
+  request_timeout: 6.0
   max_request_timeout: 15.0
-  # 国内直连时被墙引擎(wikipedia/ddg/brave/mojeek/bing)全部 timeout。
-  # 2026-07-06 实测: 走本地代理后全部复活, 且国内源(baidu/sogou/bilibili/quark)
-  # 经代理分流依然正常, 无需引擎级拆分路由。代理地址按本机改; VPS 直连部署时注释掉。
-  # (2026-07-06 拍板: 默认引擎集国际+国内"都来", 本地开发代理常开是前提)
-  proxies:
-    all://:
-      - http://127.0.0.1:1088
+# 分流(矩阵实测):下列引擎 Beijing 直连不通、经 Tokyo 出海可用 → 单独走 Tokyo 代理。
+# 其余(垂直源 arxiv/github/stackoverflow… + 国内 baidu/sogou/quark)默认直连,不代理。
+engines:
+  - name: "bing images"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "bing news"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "bing videos"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "brave"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "bt4g"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "dailymotion"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "docker hub"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "duckduckgo images"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "duckduckgo news"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "duckduckgo videos"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "flickr"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "google cse"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "google images"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "google news"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "lemmy comments"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "lemmy communities"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "lemmy posts"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "lemmy users"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "mastodon hashtags"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "mastodon users"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "mixcloud"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "openstreetmap"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "openverse"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "pexels"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "pinterest"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "reuters"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "semantic scholar"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikicommons.audio"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikicommons.files"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikicommons.images"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikicommons.videos"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikidata"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikinews"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikipedia"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wiktionary"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "youtube"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  # 慢性引擎超时治理(2026-07-28 延迟治理④,实测:google scholar 6.2s 满超时零结果、
+  # semantic scholar 4.2s)——给慢性引擎单独压低超时,砍掉每次搜索的长尾白等。
+  - name: "semantic scholar"
+    timeout: 4.0

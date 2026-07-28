@@ -13,7 +13,7 @@ meta:
     general: ["brave", "duckduckgo", "mojeek", "wikipedia", "wikidata"]
     knowledge: ["wikipedia", "wikidata", "wiktionary", "wikibooks", "wikisource", "openlibrary"]
     dev: ["github", "stackoverflow", "askubuntu", "superuser", "mdn", "hackernews", "docker hub", "pypi", "npm", "arch linux wiki"]
-    academic: ["arxiv", "semantic scholar", "pubmed", "crossref", "openalex", "google scholar"]
+    academic: ["arxiv", "semantic scholar", "pubmed", "crossref", "openalex"]
     news: ["brave.news", "duckduckgo news", "bing news", "google news", "reuters", "wikinews"]
     social: ["reddit", "hackernews", "lemmy posts", "mastodon hashtags", "sogou wechat"]
     images: ["bing images", "duckduckgo images", "brave.images", "wikicommons.images", "unsplash", "flickr"]
@@ -133,7 +133,7 @@ engines:
   - {name: "wikimini", module: xpath, tier: T3, type: knowledge, cats: [general], default: false, status: pool}
   - {name: "woxikon.de synonyme", module: xpath, tier: T3, type: knowledge, cats: [dictionaries], default: false, status: pool}
   # ================ 学术科研 (academic) × 12 ================
-  - {name: "google scholar", module: google_scholar, tier: T0, type: academic, cats: [general], status: default, scenes: [academic]}
+  - {name: "google scholar", module: google_scholar, tier: T0, type: academic, cats: [general], status: removed, removed_reason: "双端机房 IP 均被拒(Beijing ConnectTimeout/Tokyo access denied,2026-07-28 实测):周期性 15s 超时探针毒害 academic 长尾,需住宅代理复活"}
   - {name: "pubmed", module: pubmed, tier: T0, type: academic, cats: [general], status: default, scenes: [academic]}
   - {name: "arxiv", module: arxiv, tier: T1, type: academic, cats: [general], status: default, scenes: [academic]}
   - {name: "astrophysics data system", module: astrophysics_data_system, tier: T1, type: academic, cats: [general], default: false, inactive: true, status: removed, removed_reason: inactive, note: "可复活:需密钥"}

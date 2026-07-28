@@ -7,6 +7,12 @@
 - asyncio.wait_for 只是兜底(cancel 不了里面的线程),真正的超时靠 curl 自身
 """
 import asyncio
+import json
+import os
+import subprocess
+import threading
+import time
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -116,6 +122,119 @@ def _static_get(url: str, pin: str | None, timeout_s: float, impersonate: str | 
         session.close()
 
 
+# ---------- ① fetch LRU 缓存(2026-07-28 延迟治理) ----------
+_FETCH_CACHE: "dict[tuple, tuple[float, FetchResult]]" = {}
+_CACHE_LOCK = threading.Lock()
+
+
+def _cache_get(key: tuple) -> FetchResult | None:
+    with _CACHE_LOCK:
+        hit = _FETCH_CACHE.get(key)
+        if not hit:
+            return None
+        exp, fr = hit
+        if time.monotonic() > exp:
+            _FETCH_CACHE.pop(key, None)
+            return None
+        return fr
+
+
+def _cache_put(key: tuple, fr: FetchResult) -> None:
+    # 只缓存确定性结果;瞬时失败(failed/timeout/blocked)不缓存,避免把抖动固化
+    if fr.status not in ("ok", "no_content"):
+        return
+    with _CACHE_LOCK:
+        if len(_FETCH_CACHE) >= config.FETCH_CACHE_MAX:
+            for k in list(_FETCH_CACHE)[: config.FETCH_CACHE_MAX // 4]:  # 懒驱逐最旧 1/4
+                _FETCH_CACHE.pop(k, None)
+        _FETCH_CACHE[key] = (time.monotonic() + config.FETCH_CACHE_TTL, fr)
+
+
+# ---------- ③ static 空壳域自适应跳过 ----------
+_STATIC_FAILS: "dict[str, int]" = {}
+_FAILS_LOCK = threading.Lock()
+
+
+def _static_fail_count(host: str) -> int:
+    with _FAILS_LOCK:
+        return _STATIC_FAILS.get(host, 0)
+
+
+def _static_note_result(host: str, status: str) -> None:
+    if not host:
+        return
+    with _FAILS_LOCK:
+        if status == "ok":
+            _STATIC_FAILS.pop(host, None)  # static 成功即清零
+        elif status in ("no_content", "blocked"):
+            _STATIC_FAILS[host] = min(_STATIC_FAILS.get(host, 0) + 1, 99)
+        # failed/timeout 是网络抖动,不计入"空壳"判定
+
+
+# ---------- ② 浏览器暖池(CDP 常驻 chromium) ----------
+_WARM_PROC: "subprocess.Popen | None" = None
+_WARM_WS: str | None = None
+_WARM_LOCK = threading.Lock()
+
+
+def _warm_browser_ws() -> str | None:
+    """取/起常驻 chromium 的 CDP websocket。启动失败返回 None(回退冷启动)。
+    懒启动 + 健康检查 + 死亡重启;代理/绕行镜像 fetch 的 env 语义(国际经代理、国内直连)。"""
+    global _WARM_PROC, _WARM_WS
+    if not config.BROWSER_WARM:
+        return None
+    with _WARM_LOCK:
+        if _WARM_WS:
+            try:  # 健康检查(100ms,本地回环)
+                urllib.request.urlopen(
+                    f"http://127.0.0.1:{config.BROWSER_WARM_PORT}/json/version", timeout=0.5)
+                return _WARM_WS
+            except Exception:
+                _warm_kill_locked()  # 死了重启
+        shell = os.environ.get(
+            "HOLLOW_BROWSER_SHELL",
+            os.path.expanduser("~/.cache/ms-playwright/chromium_headless_shell-1228/"
+                               "chrome-headless-shell-linux64/chrome-headless-shell"))
+        if not os.path.exists(shell):
+            return None
+        proxy = os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
+        bypass = os.environ.get("no_proxy") or os.environ.get("NO_PROXY") or ""
+        argv = [shell, f"--remote-debugging-port={config.BROWSER_WARM_PORT}",
+                "--no-sandbox", "--disable-gpu"]
+        if proxy:
+            argv.append(f"--proxy-server={proxy}")
+            argv.append(f"--proxy-bypass-list={bypass.replace(',', ';')}")
+        try:
+            _WARM_PROC = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for _ in range(50):  # 最多等 15s
+                try:
+                    v = json.loads(urllib.request.urlopen(
+                        f"http://127.0.0.1:{config.BROWSER_WARM_PORT}/json/version", timeout=1).read())
+                    _WARM_WS = v["webSocketDebuggerUrl"]
+                    return _WARM_WS
+                except Exception:
+                    time.sleep(0.3)
+        except Exception:
+            pass
+        _warm_kill_locked()
+        return None
+
+
+def _warm_kill_locked() -> None:
+    global _WARM_PROC, _WARM_WS
+    _WARM_WS = None
+    if _WARM_PROC is not None:
+        try:
+            _WARM_PROC.terminate()
+            _WARM_PROC.wait(timeout=3)
+        except Exception:
+            try:
+                _WARM_PROC.kill()
+            except Exception:
+                pass
+    _WARM_PROC = None
+
+
 def _host_in_skip_domains(url: str) -> bool:
     """域名(含子域)是否命中升档黑名单(config.ESCALATE_SKIP_DOMAINS)——与 filters 的域过滤同语义。"""
     host = (urlsplit(url).hostname or "").lower()
@@ -204,10 +323,17 @@ def _fetch_browser_sync(url: str, timeout_s: float, tier: str, do_purify: bool) 
     if blocked:
         return FetchResult(url, "blocked", fetched_at=fetched_at, tier=tier, error=f"SSRF guard: {blocked}")
     try:
-        fetcher_cls = StealthyFetcher if tier == "stealthy" else DynamicFetcher
-        resp = fetcher_cls.fetch(
-            url, headless=True, timeout=int(timeout_s * 1000), retries=1,
-        )
+        warm_ws = _warm_browser_ws() if tier == "dynamic" else None
+        if warm_ws:
+            # 暖池:CDP 连常驻 chromium,省 2-4s 冷启动(2026-07-28 延迟治理②)
+            resp = DynamicFetcher.fetch(
+                url, cdp_url=warm_ws, headless=True, timeout=int(timeout_s * 1000), retries=1,
+            )
+        else:
+            fetcher_cls = StealthyFetcher if tier == "stealthy" else DynamicFetcher
+            resp = fetcher_cls.fetch(
+                url, headless=True, timeout=int(timeout_s * 1000), retries=1,
+            )
     except Exception as e:
         first_line = str(e).split("\n")[0][:200]  # playwright 错误带多行 Call log,只留首行
         return FetchResult(url, "failed", fetched_at=fetched_at, tier=tier,
@@ -268,6 +394,8 @@ def shutdown_executors() -> None:
     在跑的浏览器线程因已关 solve_cloudflare 而有界(≤timeout),不会无限阻塞退出。"""
     _FETCH_EXECUTOR.shutdown(wait=False, cancel_futures=True)
     _BROWSER_EXECUTOR.shutdown(wait=False, cancel_futures=True)
+    with _WARM_LOCK:
+        _warm_kill_locked()  # 暖池 chromium 一并收尾(2026-07-28 延迟治理②)
 
 
 async def fetch_one(
@@ -287,30 +415,55 @@ async def fetch_one(
     browser_semaphore 为空时新建一个(独立调用/测试用);编排器会传共享的每请求闸。"""
     if browser_semaphore is None:
         browser_semaphore = asyncio.Semaphore(config.REQUEST_BROWSER_CONCURRENCY)
-    async with semaphore, _GLOBAL_GATE:
-        loop = asyncio.get_running_loop()
-        try:
-            # 外层兜底超时 = curl 超时 + 5s 余量;正常情况 curl 先到点
-            result = await asyncio.wait_for(
-                loop.run_in_executor(
-                    _FETCH_EXECUTOR, _fetch_sync, url, timeout_s, impersonate, purify
-                ),
-                timeout=timeout_s + 5,
-            )
-        except asyncio.TimeoutError:
-            result = FetchResult(url, "timeout", fetched_at=_now_iso(),
-                                 error=f"hard timeout after {timeout_s + 5}s (outer wait_for)")
+
+    # ① LRU 缓存:命中直接返回,不占任何闸(缓存键含影响产出的全部参数)
+    cache_key = (url, timeout_s, impersonate, escalate, purify) if config.FETCH_CACHE else None
+    if cache_key is not None:
+        hit = _cache_get(cache_key)
+        if hit is not None:
+            return hit
+
+    # ③ 空壳域自适应跳过:同域连续 N 次 static 无正文/被拦,升档开着就直上浏览器
+    host = (urlsplit(url).hostname or "").lower()
+    skip_static = bool(
+        escalate and config.STATIC_ADAPTIVE_SKIP
+        and _static_fail_count(host) >= config.STATIC_ADAPTIVE_SKIP
+    )
+    if skip_static:
+        result = FetchResult(url, "no_content", fetched_at=_now_iso(),
+                             error=f"static skipped (adaptive: {host} 连续空壳/被拦,直上浏览器)")
+    else:
+        async with semaphore, _GLOBAL_GATE:
+            loop = asyncio.get_running_loop()
+            try:
+                # 外层兜底超时 = curl 超时 + 5s 余量;正常情况 curl 先到点
+                result = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        _FETCH_EXECUTOR, _fetch_sync, url, timeout_s, impersonate, purify
+                    ),
+                    timeout=timeout_s + 5,
+                )
+            except asyncio.TimeoutError:
+                result = FetchResult(url, "timeout", fetched_at=_now_iso(),
+                                     error=f"hard timeout after {timeout_s + 5}s (outer wait_for)")
+        _static_note_result(host, result.status)
 
     if not escalate or result.status not in _ESCALATE_ON:
+        if cache_key is not None:
+            _cache_put(cache_key, result)
         return result
 
     # SSRF 命中的 blocked:浏览器档 vet 同样会拦,升级纯属浪费槽位与时间(QA 2026-07-22:
     # 还会在浏览器闸排队后把 blocked 误报成 timeout)——短路返回,保留原始原因。
     if result.status == "blocked" and (result.error or "").startswith("SSRF guard"):
+        if cache_key is not None:
+            _cache_put(cache_key, result)
         return result
 
     # PDF 前置判定的 no_content:浏览器档拿到的同样是 PDF 字节流,升级必然同果——短路。
     if result.status == "no_content" and "HEAD probe" in (result.error or ""):
+        if cache_key is not None:
+            _cache_put(cache_key, result)
         return result
 
     # 已知强反爬域(机房 IP 信誉层拦截):浏览器指纹伪装救不回,跳过升级链(config.ESCALATE_SKIP_DOMAINS)。
@@ -327,11 +480,15 @@ async def fetch_one(
     for tier in tiers:
         result = await _run_browser_tier(url, tier, browser_semaphore, purify)
         if result.status == "ok":
+            if cache_key is not None:
+                _cache_put(cache_key, result)
             return result
         history.append(_attempt_summary(result))
         if result.status == "timeout":  # 超时不再往上升
             break
     result.error = "escalation exhausted: " + " -> ".join(history)
+    if cache_key is not None:
+        _cache_put(cache_key, result)
     return result
 
 

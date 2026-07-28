@@ -14,6 +14,13 @@ def _env_int(name: str, default: int) -> int:
     return int(raw) if raw and raw.strip() else default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in ("0", "false", "no", "off", "")
+
+
 def _env_float(name: str, default: float) -> float:
     raw = os.environ.get(name)
     return float(raw) if raw and raw.strip() else default
@@ -66,6 +73,19 @@ ESCALATE_SKIP_DOMAINS: frozenset = frozenset(
               or "zhihu.com,bilibili.com,toutiao.com,baike.baidu.com").split(",")
     if d.strip()
 )
+# ---- 延迟治理(2026-07-28 四项,实测驱动:dynamic 冷启动 14.7s、EN/dev 搜索长尾 3s) ----
+# ① fetch LRU 缓存:同 URL 短 TTL 不重抓(热门页跨用户秒开);只缓存确定性结果(ok/no_content),
+#   瞬时失败(failed/timeout/blocked)不缓存。进程内存放,重启即清。
+FETCH_CACHE: bool = _env_bool("HOLLOW_FETCH_CACHE", True)
+FETCH_CACHE_TTL: float = _env_float("HOLLOW_FETCH_CACHE_TTL", 300.0)
+FETCH_CACHE_MAX: int = _env_int("HOLLOW_FETCH_CACHE_MAX", 512)
+# ② 浏览器暖池:常驻 1 个 chromium(headless-shell, CDP 接入),dynamic 档省 2-4s 冷启动;
+#   stealthy 低频兜底仍冷启动(常驻两实例内存不划算)。代理/绕行跟随 fetch 的 env 语义。
+BROWSER_WARM: bool = _env_bool("HOLLOW_BROWSER_WARM", True)
+BROWSER_WARM_PORT: int = _env_int("HOLLOW_BROWSER_WARM_PORT", 9223)
+# ③ static 空壳域自适应跳过:同域连续 N 次 static 拿不到正文(no_content/blocked)后,
+#   后续请求(升档开启时)跳过 static 直上浏览器,省白等;static 成功即清零。0=关闭。
+STATIC_ADAPTIVE_SKIP: int = _env_int("HOLLOW_STATIC_ADAPTIVE_SKIP", 2)
 # 浏览器档单 URL 超时(秒;Scrapling 浏览器 API 内部单位是毫秒,换算在 fetcher 里做)。
 # dynamic 与 stealthy 同款:本版**不开 solve_cloudflare**(其内部无上限循环不可中断,
 # 会导致线程泄漏——审查确认),故所有浏览器操作都受 playwright 自身 timeout 硬约束。
