@@ -104,6 +104,13 @@ FETCH_URLS_MAX: int = _env_int("HOLLOW_FETCH_URLS_MAX", 10)  # /v1/fetch 单次�
 EXTRACT_LINKS_MAX: int = _env_int("HOLLOW_EXTRACT_LINKS_MAX", 100)
 EXTRACT_MEDIA_MAX: int = _env_int("HOLLOW_EXTRACT_MEDIA_MAX", 50)
 
+# 外链自动展开(2026-07-29;/v1/fetch expand_*):抓完页面后按 links 清单自动跟进,
+# "展到一定程度即止"——每页扇出、递归层数、整树总量、时间预算四重封顶,防 crawl 爆炸。
+EXPAND_LINKS_MAX: int = _env_int("HOLLOW_EXPAND_LINKS_MAX", 10)      # 每页跟进外链数上限
+EXPAND_DEPTH_MAX: int = _env_int("HOLLOW_EXPAND_DEPTH_MAX", 3)       # 递归层数上限
+EXPAND_TOTAL_MAX: int = _env_int("HOLLOW_EXPAND_TOTAL_MAX", 20)      # 单棵展开树子孙总量预算
+EXPAND_BUDGET_S: float = _env_float("HOLLOW_EXPAND_BUDGET_S", 45.0)  # 展开阶段时间预算(缺省)
+
 # 词汇重排权重(2026-07-14,搜索质量批;api/rerank.py)。标题命中远重于正文,
 # SearXNG 原分只当兜底 prior。⚠️ 待校准(底线④):这组是起点,需按真实 query 调。
 RERANK_W_TITLE: float = _env_float("HOLLOW_RERANK_W_TITLE", 3.0)

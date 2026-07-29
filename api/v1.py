@@ -385,7 +385,111 @@ class FetchCreate(BaseModel):
                                 description="抽取页面外链清单 [{url,text,internal}]")
     include_media: bool = Field(default=False,
                                 description="抽取页面媒体清单 [{url,type,source,alt?}]")
+    # 外链自动展开(2026-07-29):抓完按 links 清单自动跟进,展到一定程度即止。
+    # 内部隐式开启父页 links 抽取(不输出,除非 include_links 显式开);子孙页不抽 media。
+    # 四重封顶:每页扇出 EXPAND_LINKS_MAX / 层数 EXPAND_DEPTH_MAX /
+    #           整树总量 EXPAND_TOTAL_MAX / 时间预算 EXPAND_BUDGET_S。
+    expand_links: int = Field(default=0, ge=0, le=config.EXPAND_LINKS_MAX,
+                              description="每个页面自动跟进的外链数(0=关);子条目进 children")
+    expand_depth: int = Field(default=1, ge=1, le=config.EXPAND_DEPTH_MAX,
+                              description="展开递归层数:1=只跟进一层")
+    expand_scope: Literal["internal", "all"] = Field(
+        default="internal",
+        description="展开范围:internal 只跟站内(同 host/子域);all 任意外链")
     model_config = ConfigDict(extra="allow")  # 未知参数收进 model_extra 后回报,不静默吞掉
+
+
+def _fetch_item_dict(u: str, fr: "fetcher.FetchResult", body: FetchCreate,
+                     show_links: bool, show_media: bool) -> dict:
+    """fetch 条目序列化(父条目与 expand 子孙条目同构)。u=客户端点名的原始 URL。"""
+    content = fr.content
+    if content is not None and body.max_content_chars and len(content) > body.max_content_chars:
+        content = content[:body.max_content_chars] + "…(truncated)"
+    item = {
+        "object": "fetch.item",
+        "url": u,
+        "fetch_status": fr.status,
+        "engine_used": fr.tier,
+        "http_status": fr.http_status,
+        "word_count": fr.word_count,
+        "purified": fr.purified,
+        "content": content,
+        "error": fr.error,
+        "fetched_at": fr.fetched_at,
+    }
+    if fr.url and fr.url != u:
+        item["final_url"] = fr.url  # 重定向后的最终落点(可溯源,底线③)
+    if show_links:
+        item["links"] = fr.links if fr.links is not None else []
+    if show_media:
+        item["media"] = fr.media if fr.media is not None else []
+    return item
+
+
+# ---------- 外链自动展开(expand_*;四重封顶见 FetchCreate 注释) ----------
+
+def _pick_children(links: list[dict] | None, scope: str, n: int,
+                   visited: set[str]) -> list[str]:
+    """从父页 links 清单挑跟进对象:scope 过滤 + visited 防循环(整树共享)+ 保序取前 n。"""
+    out: list[str] = []
+    for l in links or []:
+        u = l.get("url")
+        if not u or u in visited:
+            continue
+        if scope == "internal" and not l.get("internal"):
+            continue
+        visited.add(u)
+        out.append(u)
+        if len(out) >= n:
+            break
+    return out
+
+
+async def _expand_child(u: str, depth: int, body: FetchCreate, ctx: dict,
+                        visited: set[str], budget: list[int]) -> dict | None:
+    """抓一个子孙页并按需递归。budget=[剩余名额] 整树共享,耗尽即停止下钻(返回 None)。"""
+    if budget[0] <= 0:
+        return None
+    budget[0] -= 1
+    want_links = depth < body.expand_depth  # 还要下钻才抽子页 links
+    try:
+        fr = await fetcher.fetch_one(
+            u, semaphore=ctx["semaphore"], timeout_s=ctx["timeout_s"],
+            impersonate=config.IMPERSONATE, escalate=ctx["escalate"],
+            purify=body.purify, browser_semaphore=ctx["browser_semaphore"],
+            include_links=want_links, include_media=False)
+    except BaseException as ex:  # fetch_one 契约上不抛;防御收敛,单条坏不炸整树
+        fr = fetcher.FetchResult(u, "failed", error=f"{type(ex).__name__}: {ex}")
+    item = _fetch_item_dict(u, fr, body, show_links=False, show_media=False)
+    item["depth"] = depth  # 子孙条目带层号(父条目隐式 depth 0)
+    if want_links and fr.status == "ok" and fr.links:
+        kids = _pick_children(fr.links, body.expand_scope, body.expand_links, visited)
+        if kids:
+            sub = await asyncio.gather(
+                *[_expand_child(k, depth + 1, body, ctx, visited, budget) for k in kids])
+            children = [c for c in sub if c]
+            if children:
+                item["children"] = children
+    return item
+
+
+async def _expand_item(item: dict, fr: "fetcher.FetchResult", body: FetchCreate,
+                       ctx: dict) -> None:
+    """对单个父条目做整树展开,原地写 item["children"]。父页失败/无 links 不展开。"""
+    if fr.status != "ok" or not fr.links:
+        return
+    visited = {item["url"]}
+    if fr.url:
+        visited.add(fr.url)  # 最终落点也算祖先,防 A→redirect→B→A 循环
+    budget = [config.EXPAND_TOTAL_MAX]
+    kids = _pick_children(fr.links, body.expand_scope, body.expand_links, visited)
+    if not kids:
+        return
+    sub = await asyncio.gather(
+        *[_expand_child(k, 1, body, ctx, visited, budget) for k in kids])
+    children = [c for c in sub if c]
+    if children:
+        item["children"] = children
 
 
 @router.post("/fetch")
@@ -419,22 +523,24 @@ async def create_fetch(body: FetchCreate, request: Request):
         body.mode, body.timeout, body.escalate)
     semaphore = asyncio.Semaphore(body.concurrency)
     browser_semaphore = asyncio.Semaphore(config.REQUEST_BROWSER_CONCURRENCY)
+    # 展开需要父页 links:隐式开启抽取(不输出,除非 include_links 显式开)
+    need_links = body.include_links or body.expand_links > 0
     t0 = time.perf_counter()
     tasks = [asyncio.create_task(
         fetcher.fetch_one(u, semaphore=semaphore, timeout_s=timeout_s,
                           impersonate=config.IMPERSONATE, escalate=escalate,
                           purify=body.purify, browser_semaphore=browser_semaphore,
-                          include_links=body.include_links,
+                          include_links=need_links,
                           include_media=body.include_media))
         for u in unique]
     # 整单预算:到点即收口(审查 #4:防一个全 blocked 的请求死磕升级链、垄断 2 个全局浏览器槽)。
     # 无 budget 时 timeout=None 等价于等全部完成。budget_cut 计数供账目透明(禁止静默丢弃)。
     await asyncio.wait(tasks, timeout=body.budget)
-    took_ms = int((time.perf_counter() - t0) * 1000)
 
     counts = {"ok": 0, "failed": 0, "timeout": 0, "blocked": 0, "no_content": 0}
     budget_cut = 0
     items: list[dict] = []
+    frs: list[fetcher.FetchResult] = []  # 与 items 同序,展开阶段要用 FetchResult.links
     for u, t in zip(unique, tasks):
         if not t.done():  # 预算到点仍未完成:取消并如实出条目(timeout,注明是预算切断)
             t.cancel()
@@ -447,32 +553,39 @@ async def create_fetch(body: FetchCreate, request: Request):
                 fr = t.result()
             except BaseException as ex:  # fetch_one 契约上不抛;防御收敛,单条坏不 500 整单
                 fr = fetcher.FetchResult(u, "failed", error=f"{type(ex).__name__}: {ex}")
-        content = fr.content
-        if content is not None and body.max_content_chars and len(content) > body.max_content_chars:
-            content = content[:body.max_content_chars] + "…(truncated)"
-        item = {
-            "object": "fetch.item",
-            "url": u,  # 客户端点名的原始 URL(对位其意图);条目顺序 == 输入顺序
-            "fetch_status": fr.status,
-            "engine_used": fr.tier,
-            "http_status": fr.http_status,
-            "word_count": fr.word_count,
-            "purified": fr.purified,
-            "content": content,
-            "error": fr.error,
-            "fetched_at": fr.fetched_at,
-        }
-        if fr.url and fr.url != u:
-            item["final_url"] = fr.url  # 重定向后的最终落点(可溯源,底线③)
-        if body.include_links:
-            item["links"] = fr.links if fr.links is not None else []
-        if body.include_media:
-            item["media"] = fr.media if fr.media is not None else []
+        # 条目顺序 == 输入顺序(对位客户端意图)
+        item = _fetch_item_dict(u, fr, body,
+                                show_links=body.include_links,
+                                show_media=body.include_media)
         counts[fr.status] = counts.get(fr.status, 0) + 1
         items.append(item)
+        frs.append(fr)
 
     if budget_cut:  # reap 掉被取消的抓取任务,避免 "Task was destroyed but pending" 告警
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    # 外链自动展开:父条目抓完后按 links 清单跟进,展到四重封顶即止。
+    # 时间预算:body.budget 有剩余用剩余,否则 EXPAND_BUDGET_S;到点取消,已抓的如实保留。
+    expanded = 0
+    if body.expand_links > 0:
+        ctx = {"semaphore": semaphore, "browser_semaphore": browser_semaphore,
+               "timeout_s": timeout_s, "escalate": escalate}
+        wait_s = (max(1.0, body.budget - (time.perf_counter() - t0))
+                  if body.budget else config.EXPAND_BUDGET_S)
+        expand_tasks = [asyncio.create_task(_expand_item(it, fr, body, ctx))
+                        for it, fr in zip(items, frs)]
+        await asyncio.wait(expand_tasks, timeout=wait_s)
+        pending = [t for t in expand_tasks if not t.done()]
+        for t in pending:
+            t.cancel()
+        if pending:  # reap,同 budget_cut 的处理
+            await asyncio.gather(*expand_tasks, return_exceptions=True)
+
+        def _count_children(it: dict) -> int:
+            return sum(1 + _count_children(c) for c in it.get("children", []))
+
+        expanded = sum(_count_children(it) for it in items)
+    took_ms = int((time.perf_counter() - t0) * 1000)  # 含展开阶段耗时
 
     # 不变量:requested == len(items) == ok+failed+timeout+blocked+no_content;
     #         submitted == requested + deduped。budget_cut ⊆ timeout(其中因预算切断的条数)。
@@ -482,7 +595,8 @@ async def create_fetch(body: FetchCreate, request: Request):
         "created": int(time.time()),
         "items": items,
         "fetch": {"submitted": len(submitted), "requested": len(unique),
-                  "deduped": deduped, **counts, "budget_cut": budget_cut, "took_ms": took_ms},
+                  "deduped": deduped, **counts, "budget_cut": budget_cut,
+                  "expanded": expanded, "took_ms": took_ms},
     }
     ignored = _ignored(body)
     if ignored:  # 未知/拼错参数如实回报(底线②)
