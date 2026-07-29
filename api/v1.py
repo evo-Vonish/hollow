@@ -211,6 +211,11 @@ class ResearchCreate(BaseModel):
                                 description="抽取每条来源的外链清单 [{url,text,internal}]")
     include_media: bool = Field(default=False,
                                 description="抽取每条来源的媒体清单 [{url,type,source,alt?}]")
+    # 正文图片(2026-07-29):include_images 正文保留 ![alt](url);embed_images 小图内联 data URI
+    include_images: bool = Field(default=False,
+                                 description="净化正文保留图片引用(![alt](url),夹在原位置)")
+    embed_images: bool = Field(default=False,
+                               description="小图转 data URI 内联正文(隐含 include_images)")
     stream: bool = False
     model_config = ConfigDict(extra="allow")  # 未知参数收进 model_extra 后回报,不静默吞掉
 
@@ -221,6 +226,7 @@ def _item_dict(item: ResearchItem, with_content: bool = True) -> dict:
         d["content"] = None
         d["links"] = None   # 汇总帧不带内容载荷(与 content 同等待遇;2026-07-29)
         d["media"] = None
+        d["embed"] = None
     return {"object": "research.item", **d}
 
 
@@ -268,6 +274,7 @@ async def create_research(body: ResearchCreate, request: Request):
         mode=body.mode, page=body.page,
         include_domains=body.include_domains, exclude_domains=body.exclude_domains,
         include_links=body.include_links, include_media=body.include_media,
+        include_images=body.include_images, embed_images=body.embed_images,
     )
     client: httpx.AsyncClient = request.app.state.http
     rid = f"res_{uuid.uuid4().hex}"
@@ -385,6 +392,13 @@ class FetchCreate(BaseModel):
                                 description="抽取页面外链清单 [{url,text,internal}]")
     include_media: bool = Field(default=False,
                                 description="抽取页面媒体清单 [{url,type,source,alt?}]")
+    # 正文图片(2026-07-29):include_images 在净化正文原位置保留 ![alt](url);
+    # embed_images 再把小图(≤EMBED_IMAGE_BYTES)下载转 data URI 直接内联,正文自包含。
+    include_images: bool = Field(default=False,
+                                 description="净化正文保留图片引用(![alt](url),夹在原位置)")
+    embed_images: bool = Field(default=False,
+                               description="小图转 data URI 内联正文(隐含 include_images;"
+                                           "四重护栏见 config.EMBED_*,账目进条目 embed 字段)")
     # 外链自动展开(2026-07-29):抓完按 links 清单自动跟进,展到一定程度即止。
     # 内部隐式开启父页 links 抽取(不输出,除非 include_links 显式开);子孙页不抽 media。
     # 四重封顶:每页扇出 EXPAND_LINKS_MAX / 层数 EXPAND_DEPTH_MAX /
@@ -423,6 +437,8 @@ def _fetch_item_dict(u: str, fr: "fetcher.FetchResult", body: FetchCreate,
         item["links"] = fr.links if fr.links is not None else []
     if show_media:
         item["media"] = fr.media if fr.media is not None else []
+    if body.embed_images and fr.embed_stats is not None:
+        item["embed"] = fr.embed_stats  # 内联账目如实携带(底线②)
     return item
 
 
@@ -457,7 +473,8 @@ async def _expand_child(u: str, depth: int, body: FetchCreate, ctx: dict,
             u, semaphore=ctx["semaphore"], timeout_s=ctx["timeout_s"],
             impersonate=config.IMPERSONATE, escalate=ctx["escalate"],
             purify=body.purify, browser_semaphore=ctx["browser_semaphore"],
-            include_links=want_links, include_media=False)
+            include_links=want_links, include_media=False,
+            include_images=body.include_images, embed_images=body.embed_images)
     except BaseException as ex:  # fetch_one 契约上不抛;防御收敛,单条坏不炸整树
         fr = fetcher.FetchResult(u, "failed", error=f"{type(ex).__name__}: {ex}")
     item = _fetch_item_dict(u, fr, body, show_links=False, show_media=False)
@@ -531,7 +548,9 @@ async def create_fetch(body: FetchCreate, request: Request):
                           impersonate=config.IMPERSONATE, escalate=escalate,
                           purify=body.purify, browser_semaphore=browser_semaphore,
                           include_links=need_links,
-                          include_media=body.include_media))
+                          include_media=body.include_media,
+                          include_images=body.include_images,
+                          embed_images=body.embed_images))
         for u in unique]
     # 整单预算:到点即收口(审查 #4:防一个全 blocked 的请求死磕升级链、垄断 2 个全局浏览器槽)。
     # 无 budget 时 timeout=None 等价于等全部完成。budget_cut 计数供账目透明(禁止静默丢弃)。

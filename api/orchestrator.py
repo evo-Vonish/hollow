@@ -137,6 +137,7 @@ def _assemble_item(candidate: dict, fr: fetcher.FetchResult, req: ResearchReques
         highlight_scores=[round(sc, 4) for _, sc in hl],
         links=fr.links,
         media=fr.media,
+        embed=fr.embed_stats,
     )
 
 
@@ -177,6 +178,8 @@ async def _fetch_and_assemble(
         browser_semaphore=browser_semaphore,
         include_links=req.include_links,
         include_media=req.include_media,
+        include_images=req.include_images,
+        embed_images=req.embed_images,
     )
     fetch_done = time.perf_counter()
     try:

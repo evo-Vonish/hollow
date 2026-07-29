@@ -111,6 +111,15 @@ EXPAND_DEPTH_MAX: int = _env_int("HOLLOW_EXPAND_DEPTH_MAX", 3)       # 递归层
 EXPAND_TOTAL_MAX: int = _env_int("HOLLOW_EXPAND_TOTAL_MAX", 20)      # 单棵展开树子孙总量预算
 EXPAND_BUDGET_S: float = _env_float("HOLLOW_EXPAND_BUDGET_S", 45.0)  # 展开阶段时间预算(缺省)
 
+# 正文图片内联(2026-07-29;api/embedder.py):include_images 在净化 markdown 里保留
+# 图片引用(![alt](url),trafilatura include_images);embed_images 再把小图下载转
+# data URI 直接内联(正文自包含,可离线/喂模型)。四重护栏:单张字节、总张数、
+# 总字节、每张超时;SSRF 走 netguard.vet_url;失败保留原 URL 引用,如实入账。
+EMBED_IMAGE_BYTES: int = _env_int("HOLLOW_EMBED_IMAGE_BYTES", 32_768)     # 单张"小图"上限 32KB
+EMBED_IMAGES_MAX: int = _env_int("HOLLOW_EMBED_IMAGES_MAX", 10)           # 每页最多内联张数
+EMBED_TOTAL_BYTES: int = _env_int("HOLLOW_EMBED_TOTAL_BYTES", 262_144)    # 每页内联总量 256KB
+EMBED_TIMEOUT_S: float = _env_float("HOLLOW_EMBED_TIMEOUT_S", 5.0)        # 单张下载超时
+
 # 词汇重排权重(2026-07-14,搜索质量批;api/rerank.py)。标题命中远重于正文,
 # SearXNG 原分只当兜底 prior。⚠️ 待校准(底线④):这组是起点,需按真实 query 调。
 RERANK_W_TITLE: float = _env_float("HOLLOW_RERANK_W_TITLE", 3.0)

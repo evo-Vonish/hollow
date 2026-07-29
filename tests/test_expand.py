@@ -35,7 +35,8 @@ def _patch_fetch(monkeypatch, table: dict[str, list[dict]]):
     """table: url -> links;不在表里的 URL 返回无 links 的 ok 页。"""
     async def fake_fetch_one(u, *, semaphore, timeout_s, impersonate, escalate,
                              purify, browser_semaphore=None,
-                             include_links=False, include_media=False):
+                             include_links=False, include_media=False,
+                             include_images=False, embed_images=False):
         return _fr(u, table.get(u))
     monkeypatch.setattr(v1.fetcher, "fetch_one", fake_fetch_one)
 

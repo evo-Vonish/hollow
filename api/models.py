@@ -41,6 +41,10 @@ class ResearchRequest(BaseModel):
     # 页面资产抽取(2026-07-29):外链/媒体结构化清单;默认关,不给载荷灌水
     include_links: bool = False
     include_media: bool = False
+    # 正文图片(2026-07-29):include_images 正文保留 ![alt](url) 引用;
+    # embed_images 再把小图转 data URI 内联(隐含 include_images)
+    include_images: bool = False
+    embed_images: bool = False
 
 
 class EngineFailure(BaseModel):
@@ -69,6 +73,8 @@ class ResearchItem(BaseModel):
     # 页面资产(仅 include_links/include_media 时填充,否则 None 省略;2026-07-29)
     links: list[dict] | None = None
     media: list[dict] | None = None
+    # 正文图片内联账目(仅 embed_images 时填充;2026-07-29)
+    embed: dict | None = None
 
 
 class SearchMeta(BaseModel):
