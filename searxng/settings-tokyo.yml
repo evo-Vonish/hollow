@@ -1,0 +1,23 @@
+# 临时测试实例:全走 Tokyo 代理(Tokyo IP)—— 引擎从 Tokyo 数据中心 IP 出
+use_default_settings: true
+general:
+  debug: false
+  instance_name: "test-tokyo"
+server:
+  secret_key: "268e879bed20e807f0547d78e5f482f55c02066b318e9f31a2f6334c87cf02a1"
+  bind_address: "127.0.0.1"
+  port: 8902
+  limiter: false
+  public_instance: false
+  base_url: false
+search:
+  formats: [json, html]
+  safe_search: 0
+ui:
+  default_locale: "en"
+outgoing:
+  request_timeout: 8.0
+  max_request_timeout: 15.0
+  proxies:
+    all://:
+      - http://10.88.0.1:8899

@@ -38,6 +38,9 @@ class ResearchRequest(BaseModel):
     # escalate/fetch_timeout 缺省 None = 跟随 mode 预设;显式传值则覆盖预设
     escalate: bool | None = None
     fetch_timeout: float | None = Field(default=None, gt=0, le=60)
+    # 页面资产抽取(2026-07-29):外链/媒体结构化清单;默认关,不给载荷灌水
+    include_links: bool = False
+    include_media: bool = False
 
 
 class EngineFailure(BaseModel):
@@ -63,6 +66,9 @@ class ResearchItem(BaseModel):
     published_date: str | None = None  # 发布日期(SearXNG 透传;有就带没有 null,不静默丢)
     highlights: list[str] = []         # 正文中 query 最相关的几句(词汇抽取,无模型;对齐 Exa)
     highlight_scores: list[float] = []  # 与 highlights 对位的相关分(可溯源,底线③)
+    # 页面资产(仅 include_links/include_media 时填充,否则 None 省略;2026-07-29)
+    links: list[dict] | None = None
+    media: list[dict] | None = None
 
 
 class SearchMeta(BaseModel):

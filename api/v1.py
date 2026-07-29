@@ -206,6 +206,11 @@ class ResearchCreate(BaseModel):
     page: int = Field(default=1, ge=1, le=20, description="分页(SearXNG pageno)")
     include_domains: list[str] | None = Field(default=None, description="只保留这些域(含子域)")
     exclude_domains: list[str] | None = Field(default=None, description="剔除这些域(含子域)")
+    # 页面资产抽取(2026-07-29):外链/媒体结构化清单;默认关,不给载荷灌水
+    include_links: bool = Field(default=False,
+                                description="抽取每条来源的外链清单 [{url,text,internal}]")
+    include_media: bool = Field(default=False,
+                                description="抽取每条来源的媒体清单 [{url,type,source,alt?}]")
     stream: bool = False
     model_config = ConfigDict(extra="allow")  # 未知参数收进 model_extra 后回报,不静默吞掉
 
@@ -214,6 +219,8 @@ def _item_dict(item: ResearchItem, with_content: bool = True) -> dict:
     d = item.model_dump()
     if not with_content:
         d["content"] = None
+        d["links"] = None   # 汇总帧不带内容载荷(与 content 同等待遇;2026-07-29)
+        d["media"] = None
     return {"object": "research.item", **d}
 
 
@@ -260,6 +267,7 @@ async def create_research(body: ResearchCreate, request: Request):
         max_content_chars=body.max_content_chars, escalate=body.escalate,
         mode=body.mode, page=body.page,
         include_domains=body.include_domains, exclude_domains=body.exclude_domains,
+        include_links=body.include_links, include_media=body.include_media,
     )
     client: httpx.AsyncClient = request.app.state.http
     rid = f"res_{uuid.uuid4().hex}"
@@ -372,6 +380,11 @@ class FetchCreate(BaseModel):
     budget: float | None = Field(default=None, gt=0, le=300,
                                  description="整单时间预算(秒);到点即收口,未完成的 URL 记 timeout "
                                              "并注明是预算切断——防单请求垄断浏览器槽(审查 #4)")
+    # 页面资产抽取(2026-07-29):外链/媒体结构化清单;默认关,不给载荷灌水
+    include_links: bool = Field(default=False,
+                                description="抽取页面外链清单 [{url,text,internal}]")
+    include_media: bool = Field(default=False,
+                                description="抽取页面媒体清单 [{url,type,source,alt?}]")
     model_config = ConfigDict(extra="allow")  # 未知参数收进 model_extra 后回报,不静默吞掉
 
 
@@ -410,7 +423,9 @@ async def create_fetch(body: FetchCreate, request: Request):
     tasks = [asyncio.create_task(
         fetcher.fetch_one(u, semaphore=semaphore, timeout_s=timeout_s,
                           impersonate=config.IMPERSONATE, escalate=escalate,
-                          purify=body.purify, browser_semaphore=browser_semaphore))
+                          purify=body.purify, browser_semaphore=browser_semaphore,
+                          include_links=body.include_links,
+                          include_media=body.include_media))
         for u in unique]
     # 整单预算:到点即收口(审查 #4:防一个全 blocked 的请求死磕升级链、垄断 2 个全局浏览器槽)。
     # 无 budget 时 timeout=None 等价于等全部完成。budget_cut 计数供账目透明(禁止静默丢弃)。
@@ -449,6 +464,10 @@ async def create_fetch(body: FetchCreate, request: Request):
         }
         if fr.url and fr.url != u:
             item["final_url"] = fr.url  # 重定向后的最终落点(可溯源,底线③)
+        if body.include_links:
+            item["links"] = fr.links if fr.links is not None else []
+        if body.include_media:
+            item["media"] = fr.media if fr.media is not None else []
         counts[fr.status] = counts.get(fr.status, 0) + 1
         items.append(item)
 

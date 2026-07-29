@@ -24,6 +24,7 @@ from curl_cffi.const import CurlOpt
 from scrapling.fetchers import DynamicFetcher, StealthyFetcher
 
 from api import config, netguard, purifier
+from api import extractor as _extractor
 
 BLOCKED_HTTP = {401, 403, 407, 429, 451}
 CURLE_OPERATION_TIMEDOUT = 28
@@ -58,6 +59,9 @@ class FetchResult:
     # 终端判定:升级链到此为止(二进制内容/超大响应——浏览器档必然同果或更糟)。
     # 2026-07-29 PDF 穿甲修复:替换原 "HEAD probe" 字符串匹配的脆弱短路。
     no_escalate: bool = False
+    # 页面资产(仅 include_links/include_media 请求时填充;2026-07-29)
+    links: list[dict] | None = None
+    media: list[dict] | None = None
 
 
 def _now_iso() -> str:
@@ -72,9 +76,11 @@ def _classify_http(http_status: int) -> tuple[str, str | None]:
     return "ok", None  # HTTP 层 ok;内容层由 _gate 再判
 
 
-def _gate(resp, do_purify: bool, tier: str, fetched_at: str) -> FetchResult:
+def _gate(resp, do_purify: bool, tier: str, fetched_at: str,
+          want_links: bool = False, want_media: bool = False) -> FetchResult:
     """HTTP 分类 + 内容闸门(design/05):HTTP ok 后净化,拿不到正文 → no_content。
-    净化前移进抓取层,好让升级链依据"有没有正文"而非仅 HTTP 决定是否升级。"""
+    净化前移进抓取层,好让升级链依据"有没有正文"而非仅 HTTP 决定是否升级。
+    want_links/want_media:HTTP ok 时顺带抽取页面资产(与净化正交;2026-07-29)。"""
     http_status, err = _classify_http(resp.status)
     if http_status != "ok":
         return FetchResult(resp.url if hasattr(resp, "url") else "", http_status,
@@ -89,9 +95,18 @@ def _gate(resp, do_purify: bool, tier: str, fetched_at: str) -> FetchResult:
         f"no usable content (HTTP {resp.status}, extracted "
         f"{wc if wc is not None else 0} chars < {config.MIN_CONTENT_CHARS}); "
         f"likely shell/anti-crawl/unrendered SPA")
+    # 页面资产抽取:仅 HTTP ok 时运行;抽取失败给诚实空,绝不拖垮正文
+    links = media = None
+    if want_links or want_media:
+        try:
+            links, media = _extractor.extract_assets(
+                resp.body, url, want_links, want_media,
+                config.EXTRACT_LINKS_MAX, config.EXTRACT_MEDIA_MAX)
+        except Exception:
+            links, media = ([] if want_links else None), ([] if want_media else None)
     return FetchResult(url, status, http_status=resp.status, content=content,
                        purified=purified, word_count=wc, fetched_at=fetched_at,
-                       error=error, tier=tier)
+                       error=error, tier=tier, links=links, media=media)
 
 
 def _too_large(resp) -> bool:
@@ -287,7 +302,8 @@ def _pdf_probe(current: str, pin: str | None, impersonate: str | None) -> bool:
         session.close()
 
 
-def _fetch_sync(url: str, timeout_s: float, impersonate: str | None, do_purify: bool) -> FetchResult:
+def _fetch_sync(url: str, timeout_s: float, impersonate: str | None, do_purify: bool,
+                want_links: bool = False, want_media: bool = False) -> FetchResult:
     """静态档:手动逐跳跟随重定向,每一跳 netguard 校验目的地 + DNS-pin(SSRF 防护,安全批 + 审查 #2)。
     对**原始 URL 和每个重定向目标**都做内网拒绝并钉 IP(curl 的 safe 模式做不到)。"""
     fetched_at = _now_iso()
@@ -345,14 +361,15 @@ def _fetch_sync(url: str, timeout_s: float, impersonate: str | None, do_purify: 
                                error=f"binary content ({_ct.split(';')[0].strip() or 'unknown'}), "
                                      "extraction not supported; detected at GET response",
                                no_escalate=True)
-        fr = _gate(resp, do_purify, "static", fetched_at)
+        fr = _gate(resp, do_purify, "static", fetched_at, want_links, want_media)
         fr.url = fr.url or url  # resp.url 缺失时回落传入 url
         return fr
     return FetchResult(url, "failed", fetched_at=fetched_at,
                        error=f"too many redirects (> {config.MAX_REDIRECTS})")
 
 
-def _fetch_browser_sync(url: str, timeout_s: float, tier: str, do_purify: bool) -> FetchResult:
+def _fetch_browser_sync(url: str, timeout_s: float, tier: str, do_purify: bool,
+                        want_links: bool = False, want_media: bool = False) -> FetchResult:
     """浏览器档(dynamic=playwright chromium / stealthy=patchright 反检测)。
     Scrapling 浏览器 API 的 timeout 单位是毫秒(静态档才是秒)。retries=1 预算可控。
     渲染完的 HTML 走同一内容闸门:SPA 渲出正文 → ok;仍空 → no_content。
@@ -400,7 +417,7 @@ def _fetch_browser_sync(url: str, timeout_s: float, tier: str, do_purify: bool) 
             return FetchResult(url, "blocked", http_status=getattr(resp, "status", None),
                                fetched_at=fetched_at, tier=tier,
                                error=f"SSRF guard (browser redirected to internal {_lu[:80]}): {bad}")
-    fr = _gate(resp, do_purify, tier, fetched_at)
+    fr = _gate(resp, do_purify, tier, fetched_at, want_links, want_media)
     fr.url = fr.url or url
     return fr
 
@@ -410,7 +427,8 @@ def _attempt_summary(fr: FetchResult) -> str:
 
 
 async def _run_browser_tier(
-    url: str, tier: str, browser_semaphore: asyncio.Semaphore, do_purify: bool
+    url: str, tier: str, browser_semaphore: asyncio.Semaphore, do_purify: bool,
+    want_links: bool = False, want_media: bool = False,
 ) -> FetchResult:
     """跑一档浏览器抓取。两道闸:
     - browser_semaphore(每请求):限单请求同时占用的浏览器升级数,防跨请求垄断(审查 medium)
@@ -424,7 +442,7 @@ async def _run_browser_tier(
     async with browser_semaphore:
         await _BROWSER_GATE.acquire()
         fut = loop.run_in_executor(_BROWSER_EXECUTOR, _fetch_browser_sync,
-                                   url, timeout_s, tier, do_purify)
+                                   url, timeout_s, tier, do_purify, want_links, want_media)
         fut.add_done_callback(lambda _f: _BROWSER_GATE.release())
         try:
             return await asyncio.wait_for(asyncio.shield(fut), timeout=timeout_s + 15)
@@ -451,6 +469,8 @@ async def fetch_one(
     escalate: bool = True,
     purify: bool = True,
     browser_semaphore: asyncio.Semaphore | None = None,
+    include_links: bool = False,
+    include_media: bool = False,
 ) -> FetchResult:
     """三档升级链 + 内容闸门:static → (blocked|failed|no_content 时) dynamic →
     (同上) stealthy。2026-07-07 拍板:blocked+failed 触发升级;新增 no_content(HTTP ok
@@ -461,7 +481,8 @@ async def fetch_one(
         browser_semaphore = asyncio.Semaphore(config.REQUEST_BROWSER_CONCURRENCY)
 
     # ① LRU 缓存:命中直接返回,不占任何闸(缓存键含影响产出的全部参数)
-    cache_key = (url, timeout_s, impersonate, escalate, purify) if config.FETCH_CACHE else None
+    cache_key = (url, timeout_s, impersonate, escalate, purify,
+                 include_links, include_media) if config.FETCH_CACHE else None
     if cache_key is not None:
         hit = _cache_get(cache_key)
         if hit is not None:
@@ -483,7 +504,8 @@ async def fetch_one(
                 # 外层兜底超时 = curl 超时 + 5s 余量;正常情况 curl 先到点
                 result = await asyncio.wait_for(
                     loop.run_in_executor(
-                        _FETCH_EXECUTOR, _fetch_sync, url, timeout_s, impersonate, purify
+                        _FETCH_EXECUTOR, _fetch_sync, url, timeout_s, impersonate, purify,
+                        include_links, include_media
                     ),
                     timeout=timeout_s + 5,
                 )
@@ -523,7 +545,8 @@ async def fetch_one(
     tiers = ("dynamic",) if (result.http_status and 500 <= result.http_status < 600) \
         else ("dynamic", "stealthy")
     for tier in tiers:
-        result = await _run_browser_tier(url, tier, browser_semaphore, purify)
+        result = await _run_browser_tier(url, tier, browser_semaphore, purify,
+                                         include_links, include_media)
         if result.status == "ok":
             if cache_key is not None:
                 _cache_put(cache_key, result)

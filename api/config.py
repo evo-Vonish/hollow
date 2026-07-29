@@ -99,6 +99,11 @@ FETCH_TOP_N_DEFAULT: int = 5
 FETCH_TOP_N_MAX: int = 20  # 2026-07-06 拍板:8→20(场景多选并集召回更大,时间预算兜底)
 FETCH_URLS_MAX: int = _env_int("HOLLOW_FETCH_URLS_MAX", 10)  # /v1/fetch 单次点名 URL 上限
 
+# 页面资产抽取(2026-07-29;api/extractor.py):外链/媒体清单条数封顶。
+# 抽取只在 include_links/include_media 显式开启时运行(默认关,不给载荷灌水)。
+EXTRACT_LINKS_MAX: int = _env_int("HOLLOW_EXTRACT_LINKS_MAX", 100)
+EXTRACT_MEDIA_MAX: int = _env_int("HOLLOW_EXTRACT_MEDIA_MAX", 50)
+
 # 词汇重排权重(2026-07-14,搜索质量批;api/rerank.py)。标题命中远重于正文,
 # SearXNG 原分只当兜底 prior。⚠️ 待校准(底线④):这组是起点,需按真实 query 调。
 RERANK_W_TITLE: float = _env_float("HOLLOW_RERANK_W_TITLE", 3.0)
