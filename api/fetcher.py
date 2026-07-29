@@ -55,6 +55,9 @@ class FetchResult:
     fetched_at: str | None = None
     error: str | None = None
     tier: str = "static"  # static | dynamic | stealthy(最终使用的档位)
+    # 终端判定:升级链到此为止(二进制内容/超大响应——浏览器档必然同果或更糟)。
+    # 2026-07-29 PDF 穿甲修复:替换原 "HEAD probe" 字符串匹配的脆弱短路。
+    no_escalate: bool = False
 
 
 def _now_iso() -> str:
@@ -241,16 +244,43 @@ def _host_in_skip_domains(url: str) -> bool:
     return any(host == d or host.endswith("." + d) for d in config.ESCALATE_SKIP_DOMAINS)
 
 
+# 二进制内容族 Content-Type(净化管线只吃 HTML,这些拿到也必无正文)——2026-07-29
+_BINARY_CT_PREFIXES = (
+    "application/pdf", "application/zip", "application/x-zip", "application/gzip",
+    "application/x-tar", "application/x-7z", "application/vnd.", "application/msword",
+    "application/epub", "application/x-mobipocket", "application/x-rar",
+    "image/", "audio/", "video/",
+)
+
+
+def _is_binary_ct(ct: str, body: bytes | None) -> bool:
+    """响应是否二进制内容(净化必无正文)。octet-stream 单独按 %PDF- 魔数嗅探:
+    个别站点把 HTML 错标成 octet-stream(尚有救),真 PDF/压缩包又常发 octet-stream。"""
+    ct = (ct or "").split(";", 1)[0].strip().lower()
+    if any(ct.startswith(p) for p in _BINARY_CT_PREFIXES):
+        return True
+    if ct == "application/octet-stream" and body is not None:
+        return body[:5] == b"%PDF-" or body[:4] in (b"PK\x03\x04", b"Rar!") or body[:2] == b"\x1f\x8b"
+    return False
+
+
 def _pdf_probe(current: str, pin: str | None, impersonate: str | None) -> bool:
-    """PDF 前置判定(QA 2026-07-22:慢速主机的 PDF 会把整段 curl 超时烧在下载上,且 timeout
-    不触发升档 → 零挽救)。对 .pdf 结尾的 URL 先发 5s HEAD 探 Content-Type,确认是 PDF 就
-    直接判 no_content 快速返回;HEAD 失败/拿不到类型则回退到正常 GET 路径(行为不变)。"""
+    """二进制前置判定(QA 2026-07-22:慢速主机的 PDF 会把整段 curl 超时烧在下载上,且 timeout
+    不触发升档 → 零挽救)。对 .pdf//pdf/ 形态的 URL 先发 5s HEAD 探 Content-Type,确认是
+    二进制族就直接判 no_content 快速返回;HEAD 失败/拿不到类型则回退到正常 GET 路径
+    (行为不变,由 GET 响应上的二进制闸门兜底)。
+    2026-07-29 修复:HEAD 改跟重定向——arxiv 等站 .pdf 先 301 剥后缀(首响 CT=text/html),
+    不跟跳永远探不到 application/pdf,导致漏网下载整个二进制。"""
     session = _cffi.Session(curl_options={CurlOpt.RESOLVE: [pin]}) if pin else _cffi.Session()
     try:
         r = session.request("HEAD", current, impersonate=impersonate, timeout=5,
-                            allow_redirects=False, verify=True)
+                            allow_redirects=True, max_redirects=3, verify=True)
+        # 跟跳后的落点也要过 SSRF 校验(只拿 CT 判型,但请求发出本身要受控)
+        landed = str(getattr(r, "url", "") or current)
+        if landed != current and netguard.vet_url(landed):
+            return False  # 落点可疑:回退正常 GET 路径(那里逐跳 netguard,会如实 blocked)
         ct = (r.headers.get("content-type") or r.headers.get("Content-Type") or "").lower()
-        return "pdf" in ct
+        return _is_binary_ct(ct, None)
     except Exception:
         return False
     finally:
@@ -270,8 +300,8 @@ def _fetch_sync(url: str, timeout_s: float, impersonate: str | None, do_purify: 
                                error=f"SSRF guard{tag}: {reason}")
         _path = current.split("?", 1)[0].lower()
         if (_path.endswith(".pdf") or "/pdf/" in _path) and _pdf_probe(current, pin, impersonate):
-            return FetchResult(url, "no_content", fetched_at=fetched_at,
-                               error="PDF content (extraction not supported yet); "
+            return FetchResult(url, "no_content", fetched_at=fetched_at, no_escalate=True,
+                               error="binary content (extraction not supported yet); "
                                      "identified via HEAD probe, full download skipped")
         try:
             raw = _static_get(current, pin, timeout_s, impersonate)
@@ -299,8 +329,22 @@ def _fetch_sync(url: str, timeout_s: float, impersonate: str | None, do_purify: 
             current = urljoin(current, loc)
             continue
         if _too_large(resp):
+            # 超大响应:浏览器档要重新下载同样会爆——终端判定不升级(2026-07-29)
             return FetchResult(url, "failed", http_status=resp.status, fetched_at=fetched_at,
-                               error=f"response too large ({len(resp.body)} bytes > {config.MAX_FETCH_BYTES})")
+                               error=f"response too large ({len(resp.body)} bytes > {config.MAX_FETCH_BYTES})",
+                               no_escalate=True)
+        # 二进制内容闸门(GET 已拿到字节):URL 形态漏网的 PDF/压缩包/图片等在这里兜底,
+        # 净化必无正文、浏览器档必"Download is starting"——终端判定不升级(2026-07-29 PDF 穿甲修复)
+        _ct = ""
+        try:
+            _ct = (resp.headers.get("content-type") or resp.headers.get("Content-Type") or "")
+        except Exception:
+            pass
+        if _is_binary_ct(_ct, resp.body):
+            return FetchResult(url, "no_content", http_status=resp.status, fetched_at=fetched_at,
+                               error=f"binary content ({_ct.split(';')[0].strip() or 'unknown'}), "
+                                     "extraction not supported; detected at GET response",
+                               no_escalate=True)
         fr = _gate(resp, do_purify, "static", fetched_at)
         fr.url = fr.url or url  # resp.url 缺失时回落传入 url
         return fr
@@ -460,8 +504,9 @@ async def fetch_one(
             _cache_put(cache_key, result)
         return result
 
-    # PDF 前置判定的 no_content:浏览器档拿到的同样是 PDF 字节流,升级必然同果——短路。
-    if result.status == "no_content" and "HEAD probe" in (result.error or ""):
+    # 终端判定(二进制内容/超大响应,no_escalate):升级必然同果或更糟——短路。
+    # (替换原 "HEAD probe" 字符串匹配,2026-07-29;SSRF blocked 仍走下方独立分支,语义不同)
+    if result.no_escalate:
         if cache_key is not None:
             _cache_put(cache_key, result)
         return result
