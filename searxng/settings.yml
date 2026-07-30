@@ -19,6 +19,17 @@ outgoing:
 # 分流(矩阵实测):下列引擎 Beijing 直连不通、经 Tokyo 出海可用 → 单独走 Tokyo 代理。
 # 其余(垂直源 arxiv/github/stackoverflow… + 国内 baidu/sogou/quark)默认直连,不代理。
 engines:
+  # 2026-07-30 死源修复:
+  # - duckduckgo 主引擎漏配代理(只有 images/news/videos 配了) → 直连被墙必死,补
+  # - sogou 北京直连被风控(302验证码),实测经 Tokyo 出海拿真实结果页 → 改代理
+  # - arxiv 直连通但 6s 引擎超时不够(实测 export.arxiv 需 ~4s,抖动即死) → 提到 10s
+  # (baidu 直连/代理双风控、quark 代理拿到的是 SPA 空壳——维持直连等风控解除)
+  - name: "duckduckgo"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "sogou"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "arxiv"
+    timeout: 10.0
   - name: "bing images"
     proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
   - name: "bing news"
