@@ -177,3 +177,7 @@ DEFAULT_ENGINES: list[str] = [
 ENGINE_FAIL_THRESHOLD: int = _env_int("HOLLOW_ENGINE_FAIL_THRESHOLD", 3)      # 连续失败熔断阈值
 ENGINE_BACKOFF_BASE_S: float = _env_float("HOLLOW_ENGINE_BACKOFF_BASE_S", 300.0)   # 退避起步 5min
 ENGINE_BACKOFF_MAX_S: float = _env_float("HOLLOW_ENGINE_BACKOFF_MAX_S", 3600.0)    # 退避封顶 60min
+
+# PDF 正文抽取(2026-07-30;api/pdf_extract.py):static 档拿到的 PDF 提取文本进 content。
+PDF_PAGES_MAX: int = _env_int("HOLLOW_PDF_PAGES_MAX", 30)        # 提取页数封顶
+PDF_CHARS_MAX: int = _env_int("HOLLOW_PDF_CHARS_MAX", 100_000)   # 提取总字符封顶

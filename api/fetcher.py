@@ -26,6 +26,7 @@ from scrapling.fetchers import DynamicFetcher, StealthyFetcher
 from api import config, netguard, purifier
 from api import extractor as _extractor
 from api import embedder as _embedder
+from api import pdf_extract as _pdf
 
 BLOCKED_HTTP = {401, 403, 407, 429, 451}
 CURLE_OPERATION_TIMEDOUT = 28
@@ -330,10 +331,9 @@ def _fetch_sync(url: str, timeout_s: float, impersonate: str | None, do_purify: 
             return FetchResult(url, "blocked", fetched_at=fetched_at,
                                error=f"SSRF guard{tag}: {reason}")
         _path = current.split("?", 1)[0].lower()
-        if (_path.endswith(".pdf") or "/pdf/" in _path) and _pdf_probe(current, pin, impersonate):
-            return FetchResult(url, "no_content", fetched_at=fetched_at, no_escalate=True,
-                               error="binary content (extraction not supported yet); "
-                                     "identified via HEAD probe, full download skipped")
+        # 2026-07-30:PDF 已有正文抽取(api/pdf_extract.py),不再 HEAD 探针短路——
+        # 直接 GET 拿字节,由下方二进制闸门识别 PDF 并提取文本;其他二进制仍终端短路。
+        # (探针函数 _pdf_probe 保留未删,供诊断脚本复用)
         try:
             raw = _static_get(current, pin, timeout_s, impersonate)
         except CurlError as e:
@@ -372,6 +372,16 @@ def _fetch_sync(url: str, timeout_s: float, impersonate: str | None, do_purify: 
         except Exception:
             pass
         if _is_binary_ct(_ct, resp.body):
+            if _pdf.is_pdf(resp.body):  # PDF 提取文本(2026-07-30);扫描件/损坏 → no_content
+                text, pages = _pdf.extract_pdf_text(resp.body)
+                if text is not None:
+                    return FetchResult(url, "ok", http_status=resp.status, content=text,
+                                       purified=False, word_count=len(text),
+                                       fetched_at=fetched_at, no_escalate=True)
+                return FetchResult(url, "no_content", http_status=resp.status,
+                                   fetched_at=fetched_at, no_escalate=True,
+                                   error=f"PDF extracted empty ({pages} pages; scanned/image-only "
+                                         "or corrupted — no text layer)")
             return FetchResult(url, "no_content", http_status=resp.status, fetched_at=fetched_at,
                                error=f"binary content ({_ct.split(';')[0].strip() or 'unknown'}), "
                                      "extraction not supported; detected at GET response",
