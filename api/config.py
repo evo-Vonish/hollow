@@ -169,6 +169,7 @@ DEFAULT_ENGINES: list[str] = [
     "baidu",
     "sogou",
     "quark",
+    "360search",  # 2026-07-30:直连 0.6s 极快,baidu 风控期兜底;健康退避失效自动熔断
 ]
 
 # 引擎自适应健康退避(2026-07-30 死源治理二期;api/engine_health.py):

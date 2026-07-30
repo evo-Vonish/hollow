@@ -6,8 +6,8 @@
 #          | default(L3 场景默认集,scenes 标场景) —— docs/design/02,2026-07-06 拍板
 meta:
   source: vendor/searxng/searx/settings.yml@a643858
-  updated: '2026-07-06'
-  status_model: 343 = removed(124) + pool(169) + default(50); 判据 legal(14)+keyed(15)+inactive(52)+lowq(38)+offbrand(5)
+  updated: '2026-07-30'
+  status_model: 343 = removed(124) + pool(168) + default(51); 判据 legal(14)+keyed(15)+inactive(52)+lowq(38)+offbrand(5)
   revivable: ["google cse", "deepl", "springer nature", "core.ac.uk", "astrophysics data system", "wolframalpha_api", "marginalia"]  # 卡密钥/上游修复,条件成熟优先接回
   scenes:
     general: ["brave", "duckduckgo", "mojeek", "wikipedia", "wikidata"]
@@ -18,7 +18,7 @@ meta:
     social: ["reddit", "hackernews", "lemmy posts", "mastodon hashtags", "sogou wechat"]
     images: ["bing images", "duckduckgo images", "brave.images", "wikicommons.images", "unsplash", "flickr"]
     av: ["youtube", "vimeo", "dailymotion", "soundcloud", "wikicommons.videos"]
-    zh: ["baidu", "quark", "sogou", "bilibili"]
+    zh: ["baidu", "quark", "sogou", "360search", "bilibili"]
   tiers:
     T0: 全球巨头/顶级机构官方服务,家喻户晓(Google/Microsoft/Apple/Baidu/Yandex/Wikimedia/Reuters 等)
     T1: 老牌知名服务或主流生态官方入口(DuckDuckGo/Brave/StackOverflow/arXiv/npm/MDN 等)
@@ -43,7 +43,7 @@ engines:
   - {name: "google cse", module: google_cse, tier: T0, type: web, cats: [general], status: removed, removed_reason: keyed, note: "可复活:申请 CSE ID+key 即为接回 Google 的合法通道"}
   - {name: "yahoo", module: yahoo, tier: T0, type: web, cats: [general], default: false, status: pool}
   - {name: "yandex", module: yandex, tier: T0, type: web, cats: [general], default: false, status: pool}
-  - {name: "360search", module: 360search, tier: T1, type: web, cats: [general], default: false, status: pool}
+  - {name: "360search", module: 360search, tier: T1, type: web, cats: [general], default: false, status: default, scenes: [zh], note: "2026-07-30 升 default:直连 0.6s 极快,baidu 风控期兜底缺口"}
   - {name: "brave", module: brave, tier: T1, type: web, cats: [general, web], status: default, scenes: [general]}
   - {name: "braveapi", module: braveapi, tier: T1, type: web, cats: [general], default: false, inactive: true, status: removed, removed_reason: keyed}
   - {name: "duckduckgo", module: duckduckgo, tier: T1, type: web, cats: [general], status: default, scenes: [general]}
