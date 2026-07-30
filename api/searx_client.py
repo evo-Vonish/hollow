@@ -17,6 +17,7 @@ import httpx
 
 from api import config
 from api.logging_setup import log
+from api import engine_health
 from api.models import EngineFailure
 
 # 上游节流(生产就绪批 #2):同时打向 SearXNG 的搜索数上限。超出的排队等待(背压),
@@ -214,6 +215,11 @@ async def search(
         ) from e
 
     used, failures, no_results = reconcile(engines, payload)
+    # 健康入账(2026-07-30):确定失败熔断计数,产出归零恢复;no_results 不算失败(歧义)
+    for f in failures:
+        engine_health.record_failure(f.engine, f.reason)
+    for e in used:
+        engine_health.record_success(e)
     if failures:  # 引擎失败入日志(诊断自伤 DoS 熔断、静默失败;底线③运维溯源)
         log.info("searxng engine failures (q=%r): %s", safe_q[:80],
                  ", ".join(f"{f.engine}={f.reason[:40]}" for f in failures))

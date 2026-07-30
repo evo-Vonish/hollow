@@ -30,7 +30,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from api import auth, config, fetcher, filters, orchestrator, registry, rerank
+from api import auth, config, engine_health, fetcher, filters, orchestrator, registry, rerank
 from api.models import ResearchItem, ResearchRequest, ResearchResponse, SearchMeta
 from api.responses import UTF8JSONResponse
 from api.searx_client import InvalidQueryError, SearxBadRequestError, SearxUnavailableError
@@ -114,6 +114,11 @@ async def create_search(body: SearchCreate, request: Request):
     engines = _resolve_engines(body.scenes, body.engines)
     if isinstance(engines, JSONResponse):
         return engines
+    # 引擎健康熔断(2026-07-30):默认集/场景集剔除退避中的引擎;engines= 显式点名
+    # 豁免(用户意图优先,失败如实入账)。账目进 meta.engines_degraded(底线②)。
+    degraded: list[dict] = []
+    if not body.engines:
+        engines, degraded = engine_health.filter_engines(engines)
     client: httpx.AsyncClient = request.app.state.http
     try:
         outcome = await searx_client.search(
@@ -151,6 +156,7 @@ async def create_search(body: SearchCreate, request: Request):
         engines_used=outcome.engines_used,
         engines_failed=outcome.engines_failed,
         engines_no_results=outcome.engines_no_results,
+        engines_degraded=degraded,
         results_total=len(outcome.results),
         took_ms=outcome.took_ms,
         q_sanitized=outcome.q_sanitized,
@@ -264,9 +270,14 @@ async def create_research(body: ResearchCreate, request: Request):
     engines = _resolve_engines(body.scenes, body.engines)
     if isinstance(engines, JSONResponse):
         return engines
+    # 引擎健康熔断(同 search 端点;显式点名豁免)
+    degraded: list[dict] = []
+    if not body.engines:
+        engines, degraded = engine_health.filter_engines(engines)
 
     req = ResearchRequest(
         q=body.query, engines=engines, language=body.language,
+        engines_degraded=degraded,
         time_range=body.time_range, safesearch=body.safesearch,
         fetch_top_n=body.top_n, purify=body.purify, fetch_timeout=body.timeout,
         concurrency=body.concurrency, budget=body.budget,

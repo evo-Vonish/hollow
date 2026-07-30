@@ -170,3 +170,9 @@ DEFAULT_ENGINES: list[str] = [
     "sogou",
     "quark",
 ]
+
+# 引擎自适应健康退避(2026-07-30 死源治理二期;api/engine_health.py):
+# 连续失败熔断 → 默认集剔除 → 指数退避 → 到期探测恢复;显式点名豁免。
+ENGINE_FAIL_THRESHOLD: int = _env_int("HOLLOW_ENGINE_FAIL_THRESHOLD", 3)      # 连续失败熔断阈值
+ENGINE_BACKOFF_BASE_S: float = _env_float("HOLLOW_ENGINE_BACKOFF_BASE_S", 300.0)   # 退避起步 5min
+ENGINE_BACKOFF_MAX_S: float = _env_float("HOLLOW_ENGINE_BACKOFF_MAX_S", 3600.0)    # 退避封顶 60min

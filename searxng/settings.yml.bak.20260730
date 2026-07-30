@@ -1,0 +1,97 @@
+# hollow SearXNG(Beijing 生产 · 串 Tokyo)—— 引擎路由按 2026-07-16 双 IP 矩阵重配
+use_default_settings: true
+general: {debug: false, instance_name: "hollow-search", enable_metrics: true}
+server:
+  secret_key: "268e879bed20e807f0547d78e5f482f55c02066b318e9f31a2f6334c87cf02a1"
+  bind_address: "127.0.0.1"
+  port: 8888
+  limiter: false
+  public_instance: false
+  base_url: false
+search:
+  formats: [json, html]
+  safe_search: 0
+ui:
+  default_locale: "en"
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 15.0
+# 分流(矩阵实测):下列引擎 Beijing 直连不通、经 Tokyo 出海可用 → 单独走 Tokyo 代理。
+# 其余(垂直源 arxiv/github/stackoverflow… + 国内 baidu/sogou/quark)默认直连,不代理。
+engines:
+  - name: "bing images"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "bing news"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "bing videos"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "brave"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "bt4g"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "dailymotion"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "docker hub"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "duckduckgo images"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "duckduckgo news"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "duckduckgo videos"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "flickr"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "google cse"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "google images"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "google news"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "lemmy comments"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "lemmy communities"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "lemmy posts"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "lemmy users"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "mastodon hashtags"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "mastodon users"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "mixcloud"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "openstreetmap"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "openverse"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "pexels"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "pinterest"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "reuters"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "semantic scholar"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikicommons.audio"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikicommons.files"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikicommons.images"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikicommons.videos"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikidata"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikinews"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wikipedia"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "wiktionary"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  - name: "youtube"
+    proxies: {http: "http://10.88.0.1:8899", https: "http://10.88.0.1:8899"}
+  # 慢性引擎超时治理(2026-07-28 延迟治理④,实测:google scholar 6.2s 满超时零结果、
+  # semantic scholar 4.2s)——给慢性引擎单独压低超时,砍掉每次搜索的长尾白等。
+  - name: "semantic scholar"
+    timeout: 4.0

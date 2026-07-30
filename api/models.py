@@ -15,6 +15,8 @@ class ResearchRequest(BaseModel):
     engines: list[str] | None = Field(
         default=None, description="点名引擎;缺省用精选默认集"
     )
+    # 引擎健康熔断账目(网关内部携带,非 API 入参;2026-07-30)
+    engines_degraded: list[dict] = []
     categories: str | None = None
     language: str = "auto"
     time_range: str | None = None
@@ -82,6 +84,8 @@ class SearchMeta(BaseModel):
     engines_used: list[str]
     engines_failed: list[EngineFailure]
     engines_no_results: list[str] = []  # 请求了但零产出零报错(零匹配或静默失败,不可区分;非确定失败)
+    # 熔断剔除的引擎 [{engine,reason,retry_after_s,probing}];空=无熔断(2026-07-30)
+    engines_degraded: list[dict] = []
     results_total: int
     took_ms: int
     q_sanitized: bool = False  # bang/filter 防护(!/:/< 前缀 token)是否改写过 q
