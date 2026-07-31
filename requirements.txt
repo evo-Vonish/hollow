@@ -11,3 +11,4 @@ pyyaml==6.0.3
 scrapling[fetchers]==0.4.10
 curl_cffi==0.15.0          # fetcher.py 直接用(静态档 DNS-pin CURLOPT_RESOLVE);scrapling 也依赖它
 trafilatura==2.1.0
+pypdf==6.14.2               # pdf_extract.py PDF 正文抽取(2026-07-30;fetcher static 档)

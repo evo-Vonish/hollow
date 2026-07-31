@@ -2,3 +2,4 @@
 # 单元测试网络无关,CI 无需起 SearXNG。
 -r requirements.txt
 pytest==9.1.1
+reportlab==5.0.0            # tests/test_pdf_extract.py 内存生成 PDF 夹具(仅测试用)
