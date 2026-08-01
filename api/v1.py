@@ -650,8 +650,6 @@ async def create_fetch(body: FetchCreate, request: Request):
                   "expanded": expanded, "took_ms": took_ms,
                   "queue": _queue_ledger(request)},
     }
-    if request is not None:  # 双池排队账目(底线②③)
-        obj["fetch"]["queue"] = _queue_ledger(request)
     ignored = _ignored(body)
     if ignored:  # 未知/拼错参数如实回报(底线②)
         resp["ignored_params"] = ignored
