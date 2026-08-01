@@ -248,7 +248,8 @@ def _item_dict(item: ResearchItem, with_content: bool = True) -> dict:
 
 def _research_object(rid: str, created: int, body: ResearchCreate,
                      engines: list[str], resp: ResearchResponse,
-                     with_content: bool = True) -> dict:
+                     with_content: bool = True,
+                     request: Request | None = None) -> dict:
     fetch = resp.meta.fetch
     obj = {
         "id": rid,
@@ -266,6 +267,8 @@ def _research_object(rid: str, created: int, body: ResearchCreate,
         "usage": {"searches": 1, "engines_queried": len(engines),
                   "fetches": fetch.requested, "results_ok": fetch.ok},
     }
+    if request is not None:  # 双池排队账目(底线②③)
+        obj["fetch"]["queue"] = _queue_ledger(request)
     ignored = _ignored(body)
     if ignored:  # 未知/拼错参数如实回报(底线②)
         obj["ignored_params"] = ignored
@@ -310,7 +313,7 @@ async def create_research(body: ResearchCreate, request: Request):
             return _error(400, f"SearXNG rejected a parameter: {e}", "invalid_request_error", "invalid_search_param")
         except SearxUnavailableError as e:
             return _error(502, str(e), "api_error", "upstream_unavailable")
-        return _research_object(rid, created, body, engines, resp)
+        return _research_object(rid, created, body, engines, resp, request=request)
 
     # ---- SSE:语义化事件,每条来源完成即推送 ----
     # 搜索先行完成再开流,搜索类错误仍走标准 HTTP 错误(客户端好处理);
@@ -364,7 +367,8 @@ async def create_research(body: ResearchCreate, request: Request):
                         "object": "research.event", "event": "research.completed",
                         "id": rid,
                         "research": _research_object(rid, created, body, engines,
-                                                     event[1], with_content=False),
+                                                     event[1], with_content=False,
+                                                     request=request),
                     })
             yield "data: [DONE]\n\n"
         finally:
@@ -429,6 +433,16 @@ class FetchCreate(BaseModel):
         default="internal",
         description="展开范围:internal 只跟站内(同 host/子域);all 任意外链")
     model_config = ConfigDict(extra="allow")  # 未知参数收进 model_extra 后回报,不静默吞掉
+
+
+def _queue_ledger(request: Request) -> dict | None:
+    """双池调度账目:中间件放入 scope 的 Ticket 序列化(底线②③——排队如实可见)。"""
+    t = request.scope.get("pool_ticket")
+    if t is None:
+        return None
+    return {"pool": t.pool, "queue_wait_ms": t.queue_wait_ms, "pool_depth": t.pool_depth,
+            "active_identities": t.active_identities,
+            "rate_limit_rps": round(t.rate_limit_rps, 3) or None}
 
 
 def _fetch_item_dict(u: str, fr: "fetcher.FetchResult", body: FetchCreate,
@@ -633,8 +647,11 @@ async def create_fetch(body: FetchCreate, request: Request):
         "items": items,
         "fetch": {"submitted": len(submitted), "requested": len(unique),
                   "deduped": deduped, **counts, "budget_cut": budget_cut,
-                  "expanded": expanded, "took_ms": took_ms},
+                  "expanded": expanded, "took_ms": took_ms,
+                  "queue": _queue_ledger(request)},
     }
+    if request is not None:  # 双池排队账目(底线②③)
+        obj["fetch"]["queue"] = _queue_ledger(request)
     ignored = _ignored(body)
     if ignored:  # 未知/拼错参数如实回报(底线②)
         resp["ignored_params"] = ignored

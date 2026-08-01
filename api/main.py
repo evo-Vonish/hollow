@@ -13,6 +13,8 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api import auth, config, fetcher, orchestrator
+from api import key_admin, pools
+from api.auth import resolve_identity
 from api.logging_setup import log, setup_logging
 from api.models import ResearchRequest, ResearchResponse
 from api.responses import UTF8JSONResponse
@@ -27,10 +29,12 @@ async def lifespan(app: FastAPI):
     # trust_env=False:对 SearXNG 的本机回环调用不能被系统代理环境变量劫持
     app.state.http = httpx.AsyncClient(trust_env=False)
     try:
+        pools.scheduler.start()  # 双池调度协程(登录/匿名)
         yield
     finally:
         await app.state.http.aclose()
         fetcher.shutdown_executors()  # 取消排队抓取,不 join 在跑的浏览器线程
+        await pools.scheduler.stop()  # 停双池调度协程
         log.info("hollow gateway stopped")
 
 
@@ -72,27 +76,16 @@ def _custom_openapi():
     return schema
 
 
-class _InflightLimiter:
-    """在飞重端点计数闸。单线程 asyncio:check→自增之间无 await,故无需锁。"""
-
-    def __init__(self, limit: int) -> None:
-        self.limit = limit
-        self.current = 0
-
-    def try_acquire(self) -> bool:
-        if self.current >= self.limit:
-            return False
-        self.current += 1
-        return True
-
-    def release(self) -> None:
-        if self.current > 0:
-            self.current -= 1
-
-
 # 抓取密集的重端点(search 只召回不算;其上游压力由 SEARX_GATE 单独管)
 _HEAVY_PATHS = frozenset({"/v1/research", "/v1/fetch", "/v0/research"})
-_inflight = _InflightLimiter(config.MAX_INFLIGHT_HEAVY)
+
+
+class _RequestShim:
+    """ASGI scope → resolve_identity 所需的最小请求面(headers/client)。"""
+    def __init__(self, scope):
+        from starlette.datastructures import Headers
+        self.headers = Headers(scope=scope)
+        self.client = scope.get("client") and type("C", (), {"host": scope["client"][0]})()
 
 
 class _ResourceAndAccessMiddleware:
@@ -113,18 +106,31 @@ class _ResourceAndAccessMiddleware:
         method = scope.get("method", "")
         path = scope.get("path", "")
         heavy = method == "POST" and path in _HEAVY_PATHS
-        if heavy and not _inflight.try_acquire():
-            log.warning("inflight cap %d reached -> 429 %s", config.MAX_INFLIGHT_HEAVY, path)
-            resp = UTF8JSONResponse(
-                status_code=429,
-                content={"error": {
-                    "message": f"Server at capacity ({config.MAX_INFLIGHT_HEAVY} concurrent heavy "
-                               f"requests in flight). Retry shortly.",
-                    "type": "rate_limit_error", "param": None, "code": "too_many_requests"}},
-                headers={"Retry-After": "1"},
-            )
-            await resp(scope, receive, send)
-            return
+        # 双池调度(2026-08-01):登录池满速公平,匿名池自适应慢速;仅队列满/超时拒绝,如实 Retry-After
+        pool_ticket = None
+        pool_identity = None
+        pool_obj = None
+        if heavy:
+            req = _RequestShim(scope)
+            authenticated, pool_identity, _rec = resolve_identity(req)
+            pool_obj = pools.scheduler.pool_for(authenticated)
+            try:
+                pool_ticket = await pool_obj.acquire(pool_identity)
+            except pools.PoolFullError as e:
+                log.warning("pool %s reject (%s) id=%s -> 429 %s",
+                            pool_obj.name, e.reason, pool_identity[:16], path)
+                resp = UTF8JSONResponse(
+                    status_code=429,
+                    content={"error": {
+                        "message": f"Pool '{pool_obj.name}' {e.reason.replace('_', ' ')}; "
+                                   f"retry after {e.retry_after_s}s.",
+                        "type": "rate_limit_error", "param": None,
+                        "code": "pool_queue_full" if "full" in e.reason else "pool_queue_timeout"}},
+                    headers={"Retry-After": str(e.retry_after_s)},
+                )
+                await resp(scope, receive, send)
+                return
+            scope["pool_ticket"] = pool_ticket
         t0 = time.perf_counter()
         status = {"code": 0}
 
@@ -140,7 +146,7 @@ class _ResourceAndAccessMiddleware:
             raise
         finally:
             if heavy:
-                _inflight.release()  # 真完成点(流式 body 发完 / 断连 / 异常)才释放
+                pool_obj.release(pool_identity) if pool_obj is not None else None  # 真完成点(流式 body 发完 / 断连 / 异常)才释放
             code = status["code"]
             if code:
                 dt = (time.perf_counter() - t0) * 1000
@@ -154,6 +160,7 @@ app.add_middleware(_ResourceAndAccessMiddleware)
 from api.v1 import router as _v1_router  # noqa: E402
 
 app.include_router(_v1_router)
+app.include_router(key_admin.router)  # /v1/admin/keys(ADMIN_KEY 保护,空则 404)
 app.openapi = _custom_openapi  # 路由已挂,openapi schema 惰性生成时能拿到全部 /v1 路径
 
 

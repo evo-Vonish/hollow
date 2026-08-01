@@ -45,6 +45,26 @@ SEARCH_TIMEOUT: float = _env_float("SEARCH_TIMEOUT", 20.0)
 SEARX_MAX_CONCURRENCY: int = _env_int("HOLLOW_SEARX_MAX_CONCURRENCY", 4)
 # 同时在飞的"重"端点(research/fetch/v0)上限;超限直接 429(shed load),而非让所有人一起变慢。
 MAX_INFLIGHT_HEAVY: int = _env_int("HOLLOW_MAX_INFLIGHT_HEAVY", 8)
+
+# ---- 双池调度(2026-08-01;api/pools.py 算法注释有完整形式化) ----
+# 登录/匿名池容量对称:总量沿用 MAX_INFLIGHT_HEAVY 语义,两池各半。
+POOL_AUTH_SLOTS: int = _env_int("HOLLOW_POOL_AUTH_SLOTS", 4)
+POOL_ANON_SLOTS: int = _env_int("HOLLOW_POOL_ANON_SLOTS", 4)
+# 匿名池速率曲线 R(k):k=1 钉死 R_SLOW(防单人刷);k>=K_FULL 满速;线性爬升。
+ANON_RATE_SLOW: float = _env_float("HOLLOW_ANON_RATE_SLOW", 0.2)   # req/s, 12 req/min
+ANON_RATE_FULL: float = _env_float("HOLLOW_ANON_RATE_FULL", 1.6)   # req/s, 池满速
+ANON_K_FULL: int = _env_int("HOLLOW_ANON_K_FULL", 4)
+ANON_ID_IDLE_S: float = _env_float("HOLLOW_ANON_ID_IDLE_S", 60.0)  # 身份活跃窗口
+# 排队:每身份/全局上限(满才拒 429,如实 Retry-After);排队总超时。
+ANON_Q_PER_ID: int = _env_int("HOLLOW_ANON_Q_PER_ID", 16)
+ANON_Q_GLOBAL: int = _env_int("HOLLOW_ANON_Q_GLOBAL", 64)
+AUTH_Q_PER_KEY: int = _env_int("HOLLOW_AUTH_Q_PER_KEY", 32)
+AUTH_Q_GLOBAL: int = _env_int("HOLLOW_AUTH_Q_GLOBAL", 64)
+QUEUE_WAIT_MAX_S: float = _env_float("HOLLOW_QUEUE_WAIT_MAX_S", 120.0)
+# API key 池(account.vonish.dev 上线前的本地签发器;api/key_store.py)
+API_KEYS_FILE: str = _env_str("HOLLOW_API_KEYS_FILE", "data/api_keys.json")
+ACCOUNT_INTROSPECT_URL: str = _env_str("HOLLOW_ACCOUNT_INTROSPECT_URL", "")  # 预留
+ADMIN_KEY: str = _env_str("HOLLOW_ADMIN_KEY", "")  # key 管理端点保护;空=管理端点关闭
 # SSE 心跳间隔(秒):事件间隔超过它就发一帧注释心跳,防反代把空闲连接掐断(生产就绪批 #6)。
 SSE_HEARTBEAT_SECS: float = _env_float("HOLLOW_SSE_HEARTBEAT_SECS", 15.0)
 
