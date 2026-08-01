@@ -47,6 +47,15 @@ Search responses pass through engine image fields (`img_src`/`thumbnail`) — 10
 
 **Background**: SearXNG's default reaction to a CAPTCHA is suspending the engine for 3600s (in-memory) — one trigger disables it for a whole hour, and cascading triggers across engines create the illusion of "everything is dead". The health-backoff layer turns this into observable, self-healing, exemptible, explicit behavior.
 
+## Access layer: dual-pool scheduling & API keys (2026-08-01)
+
+The free API is open to the public internet, so anonymous traffic and authenticated users are **isolated into two symmetric pools** (4 concurrency slots each):
+- **Anonymous pool** (IP-identified): adaptive fair slow-drain — with a single active identity (lone-scraper suspect), the rate is pinned at 0.2 req/s; with ≥4 identities (genuine public traffic), the pool runs full speed at 1.6 req/s, linear ramp in between. Round-robin fairness across identities means an attacker can't starve other anonymous users; requests are only rejected when the queue is full (429 + honest Retry-After), everything else just queues. Multi-IP rotation is backstopped by the pool-level rate — total throughput stays constant, the pie just gets sliced thinner.
+- **Auth pool** (hkv1_ keys): full speed, round-robin fairness across keys; a single key monopolizing is not punished (it's authenticated).
+- Queue ledgers (`pool` / `queue_wait_ms` / `active_identities`) ride every response's `fetch.queue` (principles ②③).
+
+Key issuer: `POST /v1/admin/keys` to issue (plaintext returned exactly once, sha256 at rest), `/revoke`, `GET` to list; guarded by `X-Admin-Key`, 404 when unconfigured. **Issuance migrates to account.vonish.dev once live** — a remote introspect hook is reserved in key_store.
+
 ## Four non-negotiable principles
 
 1. Success claims must come from measured responses, not intent

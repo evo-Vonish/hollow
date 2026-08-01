@@ -47,6 +47,15 @@ trafilatura 原生 `output_format='markdown', with_links/media` 管线路径,零
 
 **背景**:SearXNG 对 CAPTCHA 的默认反应是 suspend 引擎 3600s(内存态)——一次触发整小时禁用,多引擎连环触发即成"全站死光"假象。健康退避层把这件事变成可观测、可自愈、可豁免的显式行为。
 
+## 访问层:双池调度与 API key(2026-08-01)
+
+免费 API 公网开放,匿名流量与登录用户**双池对称隔离**(各 4 并发槽):
+- **匿名池**(按 IP 识别):自适应公平慢速——池内仅 1 个身份(单人刷取嫌疑)时速率钉死 0.2 req/s;身份 ≥4 个(真实公共流量)池满速 1.6 req/s,中间线性爬升。身份间轮转公平,攻击者挤不掉其他匿名用户;请求只在队列满时拒绝(429 + Retry-After 如实),其余全排队;多 IP 轮换由池级速率兜底——总吞吐恒定,饼切薄而已。
+- **登录池**(hkv1_ key):满速,多 key 轮转公平;单 key 独占不惩罚(已认证)。
+- 排队账目(`pool` / `queue_wait_ms` / `active_identities`)进每次响应的 `fetch.queue`(底线②③)。
+
+key 器:`POST /v1/admin/keys` 签发(明文仅返回一次,sha256 落盘)、`/revoke` 吊销、`GET` 列表;`X-Admin-Key` 保护,未配置则 404 关闭。**account.vonish.dev 上线后签发迁移 account 侧**,本端点预留远端 introspect 对接位。
+
 ## 四条不可协商底线
 
 1. 成功声明必须来自实测返回,而非意图
