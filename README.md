@@ -5,7 +5,7 @@
 A free, open-source (AGPL-3.0) deep-research API service: **multi-engine search recall → three-tier escalating full-text crawling → content purification → traceable Evidence Packs**.
 It borrows OpenAI's envelope/error/SSE conventions, but the domain model is hollow's own (no imitation of its endpoints).
 
-> **Status: running in production**. Complete API surface, 341 unit tests + 20 integration tests, GitHub Actions green on every push;
+> **Status: running in production**. Complete API surface, 354 unit tests + 20 integration tests, GitHub Actions green on every push;
 > live traffic served and a first calibration round done (engine relevance tiers, timeout matrix, anti-bot routing).
 > Official search UI: [hollow-browser-front-end](https://github.com/evo-Vonish/hollow-browser-front-end) · Live at https://hollow.vonish.dev
 
@@ -72,7 +72,7 @@ Self-built boundary: API orchestration, Evidence Pack assembly, relevance rerank
 
 ```bash
 git clone https://github.com/evo-Vonish/hollow.git && cd hollow
-git checkout claude/new-project-setup-1dzma1
+git checkout main
 # Two venvs (SearXNG and gateway deps are separated)
 python -m venv .venv-searx && .venv-searx/bin/pip install -r vendor/searxng/requirements.txt tzdata
 python -m venv .venv-api   && .venv-api/bin/pip install -r requirements.txt

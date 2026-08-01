@@ -5,7 +5,7 @@
 免费开源(AGPL-3.0)的深度研究 API 服务:**多源搜索召回 → 三档升级全文爬取 → 正文净化 → 可溯源 Evidence Pack**。
 参考 OpenAI 的信封/错误/SSE 惯例,域模型是 hollow 自己的(不仿制其端点)。
 
-> **状态:生产运行中**。核心 API 面完整,341 单元测试 + 20 集成测试,GitHub Actions 每次 push 全绿;
+> **状态:生产运行中**。核心 API 面完整,354 单元测试 + 20 集成测试,GitHub Actions 每次 push 全绿;
 > 已上线跑真实流量并据此完成了首轮校准(引擎相关性档位、超时矩阵、风控路由)。
 > 官方搜索界面:[hollow-browser-front-end](https://github.com/evo-Vonish/hollow-browser-front-end) · 线上 https://hollow.vonish.dev
 
@@ -72,7 +72,7 @@ FastAPI 网关 + **SearXNG**(搜索,vendored)+ **Scrapling**(三档抓取 static
 
 ```bash
 git clone https://github.com/evo-Vonish/hollow.git && cd hollow
-git checkout claude/new-project-setup-1dzma1
+git checkout main
 # 两个 venv(SearXNG 与网关依赖分离)
 python -m venv .venv-searx && .venv-searx/bin/pip install -r vendor/searxng/requirements.txt tzdata
 python -m venv .venv-api   && .venv-api/bin/pip install -r requirements.txt
