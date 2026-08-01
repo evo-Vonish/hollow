@@ -9,6 +9,7 @@ pydantic==2.13.4
 starlette==1.3.1            # main.py 直接 import StarletteHTTPException(FastAPI 传递依赖,显式锁)
 pyyaml==6.0.3
 scrapling[fetchers]==0.4.10
+apify_fingerprint_datapoints==0.13.0  # browserforge 指纹数据:0.14.0 数据格式变更使 generate_headers 无匹配抛 ValueError(2026-08-01 CI 实挂);锁死防漂移
 curl_cffi==0.15.0          # fetcher.py 直接用(静态档 DNS-pin CURLOPT_RESOLVE);scrapling 也依赖它
 trafilatura==2.1.0
 pypdf==6.14.2               # pdf_extract.py PDF 正文抽取(2026-07-30;fetcher static 档)
