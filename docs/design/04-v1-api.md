@@ -74,11 +74,17 @@ research.item 除正文字段外带:`published_date`(SearXNG 透传,缺 null)、
 ### POST /v1/research + `"stream": true`(SSE)
 
 ```
+event: research.search.completed
 data: {"object":"research.event","event":"research.search.completed","id":"res_…","search":{…},"selected":5}
+event: research.item.completed
 data: {"object":"research.event","event":"research.item.completed","id":"res_…","index":2,"item":{…含 content}}
-data: …(每条来源完成即推,完成顺序 ≠ 选取顺位,靠 index 对位)
+…(每条来源完成即推,完成顺序 ≠ 选取顺位,靠 index 对位)
+event: research.completed
 data: {"object":"research.event","event":"research.completed","id":"res_…","research":{汇总,含 fetch 账目;items 不重复携带 content}}
 data: [DONE]
+
+帧格式:每帧 = 原生 `event:` 行 + `data:` 行(事件名双轨,标准 EventSource 与手写 data 解析器皆可);
+终结帧 `[DONE]` 按惯例为纯 data 行;空闲期有 `: heartbeat` 注释行防反代掐断。
 ```
 
 搜索阶段错误发生在开流前,走标准 HTTP 错误;开流后每条抓完即 item 事件;
@@ -142,7 +148,7 @@ scenes 现有 9 个:general / knowledge / dev / academic / news / social / image
 
 ## 三、引擎选取语义
 
-最终引擎集 = **∪(各场景引擎) ∪ 自定义引擎**,去重保序;都不传用网关默认集(拍板的国际+国内 6 源)。
+最终引擎集 = **∪(各场景引擎) ∪ 自定义引擎**,去重保序;都不传用网关默认集(拍板的国际+国内 7 源;2026-07-30 360search 入列,实测直连 0.6s 质优)。
 点名校验:L1 removed → 400 `engine_removed`;不在注册表 → 400 `unknown_engine`
 (SearXNG 对无效 engines 会静默回退默认集——实测踩过,网关层必须挡住)。
 
@@ -151,7 +157,7 @@ scenes 现有 9 个:general / knowledge / dev / academic / news / social / image
 | HTTP | code | 场景 |
 |---|---|---|
 | 400 | `invalid_parameter` | 请求体校验失败(全局 handler 统一封套,不走 FastAPI 默认 422) |
-| 400 | `invalid_query` | query 经 bang/filter 清洗后为空 |
+| 400 | `invalid_query` | query 经 bang/filter 清洗后为空 | 注意:清洗是逐 token 剥 `!`/`:`/`<` 前缀,**`!g` → `g`**(合法单字符查询,200);只有整条 q 全由裸前缀 token 组成(如 `"!"` `"::: "`)清洗后才为空 → 400。
 | 400 | `engine_removed` / `unknown_engine` | 点名了 L1 源 / 注册表外的名字 |
 | 400 | `unknown_scene` | scenes 里有注册表外的场景 |
 | 400 | `invalid_search_param` | SearXNG 判定透传参数非法(如 `time_range`/`language` 取值错);此前误报 502 |

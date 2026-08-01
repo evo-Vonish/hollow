@@ -41,6 +41,13 @@ router = APIRouter(prefix="/v1")
 
 # ---------- OpenAI 风格的错误与鉴权 ----------
 
+def _sse_frame(payload: dict) -> str:
+    """语义化 SSE 帧:原生 event: 行 + data 行(payload 内含同名 event 字段)双轨。
+    标准客户端(EventSource)按事件名路由;手写 data 解析器(本仓前端/旧客户端)不受影响。
+    [DONE] 终结帧按惯例为纯 data 行(见 create_research._sse 尾帧)。"""
+    return f"event: {payload['event']}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
 def _error(status: int, message: str, err_type: str, code: str,
            param: str | None = None) -> JSONResponse:
     return UTF8JSONResponse(
@@ -318,13 +325,10 @@ async def create_research(body: ResearchCreate, request: Request):
     except SearxUnavailableError as e:
         return _error(502, str(e), "api_error", "upstream_unavailable")
 
-    def _frame(payload: dict) -> str:
-        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
     async def _sse():
         _, search_meta, selected = first
         assert isinstance(search_meta, SearchMeta)
-        yield _frame({
+        yield _sse_frame({
             "object": "research.event", "event": "research.search.completed",
             "id": rid, "created": created,
             "search": search_meta.model_dump(), "selected": selected,
@@ -350,13 +354,13 @@ async def create_research(body: ResearchCreate, request: Request):
                     nxt = None
                 if event[0] == "item":
                     _, index, item = event
-                    yield _frame({
+                    yield _sse_frame({
                         "object": "research.event", "event": "research.item.completed",
                         "id": rid, "index": index, "item": _item_dict(item),
                     })
                 elif event[0] == "done":
                     # 汇总事件不重复携带正文(item 事件已推过),只留账目与占位
-                    yield _frame({
+                    yield _sse_frame({
                         "object": "research.event", "event": "research.completed",
                         "id": rid,
                         "research": _research_object(rid, created, body, engines,
