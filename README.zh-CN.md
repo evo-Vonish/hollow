@@ -1,13 +1,12 @@
-# hollow — AI 研究浏览器 · 深度研究 API
+# hollow — AI 研究浏览器 · 深度研究 API + 搜索前端
 
 [English](README.md) · **简体中文**
 
-免费开源(AGPL-3.0)的深度研究 API 服务:**多源搜索召回 → 三档升级全文爬取 → 正文净化 → 可溯源 Evidence Pack**。
+免费开源(AGPL-3.0)的完整研究应用:**多源搜索召回 → 三档升级全文爬取 → 正文净化 → 可溯源 Evidence Pack**,并内置 React 搜索、深研与阅读界面。
 参考 OpenAI 的信封/错误/SSE 惯例,域模型是 hollow 自己的(不仿制其端点)。
 
-> **状态:生产运行中**。核心 API 面完整,354 单元测试 + 20 集成测试,GitHub Actions 每次 push 全绿;
-> 已上线跑真实流量并据此完成了首轮校准(引擎相关性档位、超时矩阵、风控路由)。
-> 官方搜索界面:[hollow-browser-front-end](https://github.com/evo-Vonish/hollow-browser-front-end) · 线上 https://hollow.vonish.dev
+> **状态:生产运行中**。核心 API 面完整,354 单元测试 + 20 集成测试,GitHub Actions 同时检查后端与前端。
+> 官方搜索界面位于 [`frontend/`](frontend/) · 线上 https://hollow.vonish.dev/search/
 
 ## 能做什么
 
@@ -63,10 +62,17 @@ key 器:`POST /v1/admin/keys` 签发(明文仅返回一次,sha256 落盘)、`/re
 3. 一切内容可溯源(engine / fetched_at / url / final_url)
 4. 阈值必须校准后上线
 
-## 架构:借力基建,自研只做薄差异层
+## 架构：同一仓库，各层独立部署
 
-FastAPI 网关 + **SearXNG**(搜索,vendored)+ **Scrapling**(三档抓取 static→dynamic→stealthy)+ **trafilatura**(净化与资产抽取)+ **pypdf**(PDF)。
-自研边界:API 编排层、Evidence Pack 组装、相关性重排/highlights(纯词汇,零模型)、引擎健康状态机、外链展开器、图片内联器。不做语言转写/重写引擎适配器。
+| 层 | 路径 | 职责 |
+|---|---|---|
+| 搜索前端 | `frontend/` | React 19 + TypeScript SPA：搜索、深研 SSE、阅读、批量抓取与引擎账目 |
+| 网关 | `api/` | FastAPI 编排、Evidence Pack、访问控制、限流与 API 契约 |
+| 搜索运行时 | `searxng/`、`vendor/searxng/` | SearXNG 配置与搜索基础设施 |
+| 抓取净化 | `vendor/scrapling/`、网关服务 | 三档抓取、trafilatura 净化与 pypdf 抽取 |
+| 运维 | `deploy/`、`tools/`、`eval/` | 本地启动、生产单元/反代与召回评测 |
+
+前端不导入后端实现，只调用公开 HTTP API。自研差异层保持为 API 编排、Evidence Pack、相关性重排/highlights、引擎健康、外链展开、图片内联与官方前端。
 
 ## 本地快速开始
 

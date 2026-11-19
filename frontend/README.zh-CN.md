@@ -1,21 +1,21 @@
-# HOLLOW Search Browser（HOLLOW 搜索浏览器）
+# HOLLOW Search Browser · `frontend/`
 
 [English](README.md) · **简体中文**
 
-[HOLLOW](https://hollow.vonish.dev/docs) 自托管深度研究 API 的官方搜索界面——一个纯前端的"搜索引擎形态"浏览器，覆盖 API 全部能力。
+[HOLLOW](../) 自托管深度研究应用的官方搜索界面——覆盖 API 全部能力的 React SPA。
 
-线上地址：<https://hollow.vonish.dev/search>
+线上地址：<https://hollow.vonish.dev/search/>
 
-## 项目边界
+## 模块边界
 
-| | 本仓库（浏览器） | HOLLOW 主仓库（搜索 API） |
+| | `frontend/`（浏览器） | API 与搜索运行时 |
 |---|---|---|
-| 性质 | 纯静态前端（React SPA），无服务端代码 | 服务端（FastAPI + vendored SearXNG + 三档抓取） |
-| 职责 | 搜索 / 深研流式 / 双路赛制阅读 / 批量净化 / 引擎注册表、页面资产展示（外链/媒体/正文图）、会话缓存、hover 预取 | 召回（`/v1/search`）、抓取净化（`/v1/fetch`，含 PDF 抽取/外链展开/图片内联）、深研 SSE（`/v1/research`）、注册表（`/v1/engines` `/v1/scenes`） |
-| 依赖关系 | 仅通过 HTTPS 调用**公开** API，不含密钥、不含内部接口 | 不感知前端存在 |
-| 部署 | 任意静态托管（当前 Caddy `handle_path /search*`） | 独立 systemd 服务 |
+| 性质 | 纯静态 React SPA，无服务端代码 | FastAPI + SearXNG + 三档抓取 |
+| 职责 | 搜索 / 深研流式 / 双路赛制阅读 / 批量净化 / 引擎注册表、页面资产展示、会话缓存、hover 预取 | 召回（`/v1/search`）、抓取净化（`/v1/fetch`）、深研 SSE（`/v1/research`）、注册表（`/v1/engines` `/v1/scenes`） |
+| 依赖关系 | 仅通过 HTTP 调用**公开** API，不含密钥、不导入内部实现 | 不导入前端代码 |
+| 部署 | 任意静态托管，挂载到 `/search/` | 独立 systemd 服务 |
 
-原则：浏览器只做"呈现与交互"，所有搜索/抓取/净化逻辑都在 API 侧。两边仅由公开 HTTP 契约耦合，可各自独立开发、发版、部署。
+两个模块现在位于同一个 monorepo，只通过公开 HTTP 契约耦合，仍可独立构建、发版和部署。
 
 ## 功能（API 全能力覆盖）
 
@@ -58,13 +58,18 @@ React 19 · TypeScript · Vite 7 · Tailwind CSS 3.4 · react-router 7 · Radix 
 
 ## 开发
 
-```bash
-npm install
-npm run dev        # 默认 3000 端口
+需要 Node.js 22.12+。
 
-# 指向生产 API(或任意 HOLLOW 实例)
-VITE_API_BASE=https://hollow.vonish.dev npm run dev
+```bash
+# 从仓库根目录执行
+npm ci --prefix frontend
+npm run dev --prefix frontend        # http://127.0.0.1:3000/search/
+
+# 不使用本地 Vite 代理，改为调用其他 HOLLOW 实例
+VITE_API_BASE=https://hollow.vonish.dev npm run dev --prefix frontend
 ```
+
+完整本地三层服务请先按根 README 安装 Python 环境，再运行 `tools/run_local.sh`（Linux）或 `tools/run_local.ps1`（Windows）。Vite 会把 `/v1` 与 `/healthz` 代理到 `127.0.0.1:8080`。
 
 ## 构建与部署
 

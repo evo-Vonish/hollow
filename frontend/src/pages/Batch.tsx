@@ -120,7 +120,7 @@ export default function Batch() {
                     <p className="mt-1.5 break-all font-mono text-[11px] leading-relaxed text-amber/80">{truncate(it.error, 200)}</p>
                   )}
                   {ok && it.content && (
-                    <p className="mt-2 text-[12.5px] leading-relaxed text-ink-1">{truncate(it.content.replace(/[#*`>\[\]]/g, ''), 240)}</p>
+                    <p className="mt-2 text-[12.5px] leading-relaxed text-ink-1">{truncate(it.content.replace(/[#*`>[\]]/g, ''), 240)}</p>
                   )}
                 </li>
               )

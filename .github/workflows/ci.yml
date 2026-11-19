@@ -2,18 +2,17 @@ name: ci
 
 on:
   push:
-    branches: ["claude/new-project-setup-1dzma1", "main"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 jobs:
-  unit:
+  backend-unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          # 单元测试网络无关,只需 api/ + tests/ + data/(test_middleware 导入 api.main→registry 读
-          # data/engine_registry.yaml);cone 模式自动含根目录 requirements*/pytest.ini。不拉庞大 vendor/。
+          # 后端单元测试无需前端与庞大 vendor/；cone 模式自动包含根目录配置。
           sparse-checkout: |
             api
             tests
@@ -24,5 +23,19 @@ jobs:
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements-dev.txt
-      # 不设 HOLLOW_TEST_LIVE → 集成测试(若有)自动跳过,只跑网络无关单元
       - run: pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            frontend
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm run check --prefix frontend

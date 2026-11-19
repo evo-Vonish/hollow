@@ -1,13 +1,12 @@
-# hollow — AI Research Browser · Deep Research API
+# hollow — AI Research Browser · Deep Research API + Search UI
 
 **English** · [简体中文](README.zh-CN.md)
 
-A free, open-source (AGPL-3.0) deep-research API service: **multi-engine search recall → three-tier escalating full-text crawling → content purification → traceable Evidence Packs**.
+A free, open-source (AGPL-3.0) research application: **multi-engine search recall → three-tier escalating full-text crawling → content purification → traceable Evidence Packs**, with an official React search, research, and reading interface.
 It borrows OpenAI's envelope/error/SSE conventions, but the domain model is hollow's own (no imitation of its endpoints).
 
-> **Status: running in production**. Complete API surface, 354 unit tests + 20 integration tests, GitHub Actions green on every push;
-> live traffic served and a first calibration round done (engine relevance tiers, timeout matrix, anti-bot routing).
-> Official search UI: [hollow-browser-front-end](https://github.com/evo-Vonish/hollow-browser-front-end) · Live at https://hollow.vonish.dev
+> **Status: running in production**. Complete API surface, 354 unit tests + 20 integration tests, with backend and frontend quality gates in GitHub Actions.
+> The official search UI lives in [`frontend/`](frontend/) · Live at https://hollow.vonish.dev/search/
 
 ## What it does
 
@@ -63,10 +62,17 @@ Key issuer: `POST /v1/admin/keys` to issue (plaintext returned exactly once, sha
 3. All content traceable (engine / fetched_at / url / final_url)
 4. Thresholds must be calibrated before shipping
 
-## Architecture: borrow infrastructure, build only thin differentiators
+## Architecture: one repository, independently deployable layers
 
-FastAPI gateway + **SearXNG** (search, vendored) + **Scrapling** (three-tier fetching: static→dynamic→stealthy) + **trafilatura** (purification & asset extraction) + **pypdf** (PDF).
-Self-built boundary: API orchestration, Evidence Pack assembly, relevance rerank/highlights (pure lexical, zero models), engine health state machine, link expander, image embedder. No language rewriting, no engine adapter rewrites.
+| Layer | Path | Responsibility |
+|---|---|---|
+| Search UI | `frontend/` | React 19 + TypeScript SPA for search, research SSE, reading, batch fetch, and engine ledgers |
+| Gateway | `api/` | FastAPI orchestration, Evidence Pack assembly, access control, rate limiting, and API contracts |
+| Search runtime | `searxng/`, `vendor/searxng/` | Vendored SearXNG configuration and search infrastructure |
+| Fetch/purify | `vendor/scrapling/`, gateway services | Three-tier fetching, trafilatura purification, and pypdf extraction |
+| Operations | `deploy/`, `tools/`, `eval/` | Local startup, production units/reverse proxy, and recall evaluation |
+
+The frontend imports no backend implementation and talks only to the public HTTP API. Self-built differentiation stays in API orchestration, Evidence Packs, relevance rerank/highlights, engine health, link expansion, image embedding, and the official UI.
 
 ## Local quickstart
 

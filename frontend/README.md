@@ -1,21 +1,21 @@
-# HOLLOW Search Browser
+# HOLLOW Search Browser · `frontend/`
 
 **English** · [简体中文](README.zh-CN.md)
 
-The official search UI for the [HOLLOW](https://hollow.vonish.dev/docs) self-hosted deep-research API — a pure-frontend browser in the shape of a search engine, covering the API's full capability surface.
+The official search UI for the [HOLLOW](../) self-hosted deep-research application — a React SPA covering the API's full capability surface.
 
-Live at <https://hollow.vonish.dev/search>
+Live at <https://hollow.vonish.dev/search/>
 
-## Project boundary
+## Module boundary
 
-| | This repo (browser) | HOLLOW main repo (search API) |
+| | `frontend/` (browser) | API and search runtime |
 |---|---|---|
-| Nature | Pure static frontend (React SPA), no server code | Server side (FastAPI + vendored SearXNG + three-tier fetching) |
-| Responsibilities | Search / research streaming / dual-lane reading / batch purification / engine registry, page asset display (links/media/body images), session cache, hover prefetch | Recall (`/v1/search`), fetch & purify (`/v1/fetch`, incl. PDF extraction / link expansion / image embedding), research SSE (`/v1/research`), registry (`/v1/engines` `/v1/scenes`) |
-| Dependency | Calls only the **public** API over HTTPS — no keys, no internal endpoints | Unaware of the frontend's existence |
-| Deployment | Any static hosting (currently Caddy `handle_path /search*`) | Independent systemd service |
+| Nature | Static React SPA, no server code | FastAPI + SearXNG + three-tier fetching |
+| Responsibilities | Search / research streaming / dual-lane reading / batch purification / engine registry, page asset display (links/media/body images), session cache, hover prefetch | Recall (`/v1/search`), fetch & purify (`/v1/fetch`), research SSE (`/v1/research`), registry (`/v1/engines` `/v1/scenes`) |
+| Dependency | Calls only the **public** API over HTTP — no keys, no internal endpoints | Does not import frontend code |
+| Deployment | Static files served at `/search/` | Independent systemd service |
 
-Principle: the browser only does "presentation & interaction"; all search/fetch/purify logic lives on the API side. The two are coupled solely by the public HTTP contract and can be developed, released, and deployed independently.
+Both modules live in this monorepo and are coupled solely by the public HTTP contract. They can still be built, released, and deployed independently.
 
 ## Features (full API capability coverage)
 
@@ -58,13 +58,18 @@ React 19 · TypeScript · Vite 7 · Tailwind CSS 3.4 · react-router 7 · Radix 
 
 ## Development
 
-```bash
-npm install
-npm run dev        # defaults to port 3000
+Requires Node.js 22.12+.
 
-# Point at the production API (or any HOLLOW instance)
-VITE_API_BASE=https://hollow.vonish.dev npm run dev
+```bash
+# From the repository root
+npm ci --prefix frontend
+npm run dev --prefix frontend        # http://127.0.0.1:3000/search/
+
+# Point at another HOLLOW instance instead of the local Vite proxy
+VITE_API_BASE=https://hollow.vonish.dev npm run dev --prefix frontend
 ```
+
+For the complete local stack, install the Python environments described in the root README and run `tools/run_local.sh` (Linux) or `tools/run_local.ps1` (Windows). Vite proxies `/v1` and `/healthz` to `127.0.0.1:8080`.
 
 ## Build & deploy
 

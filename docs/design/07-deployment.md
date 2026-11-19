@@ -1,7 +1,7 @@
 # 部署指南(场景 B:单机 Linux VPS)—— 2026-07-15
 
 > 目标:把 hollow 从"Windows 本地预览"推到"可对小范围可信用户负责"的单机部署。
-> 产物在 `deploy/`:两个 systemd unit、`gateway.env.example`、`nginx-hollow.conf`。
+> 产物在 `deploy/`：两个 systemd unit、`gateway.env.example`、`nginx-hollow.conf`；前端源码在 `frontend/`。
 > ⚠️ 上线前务必读「四个必做」——尤其目标环境验证与阈值校准是本项目**从未在 Windows/GFW 之外做过**的。
 
 ## v0.1.0 上线前检查清单(逐项打勾再发)
@@ -34,6 +34,8 @@
 /opt/hollow/                 # git clone 于此(vendor/ 也在)
   .venv-api/                 # python -m venv;pip install -r requirements.txt
   .venv-searx/               # python -m venv;pip install -r vendor/searxng/requirements.txt tzdata
+  frontend/                  # React 源码
+  frontend/dist/             # npm run build --prefix frontend 生成的静态产物(gitignore)
   api/ searxng/settings.yml vendor/searxng/ data/ ...
   logs/                      # 运行日志(gitignore)
 /etc/hollow/gateway.env      # 机密(HOLLOW_API_KEY),chmod 600,来自 gateway.env.example
