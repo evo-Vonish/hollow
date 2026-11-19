@@ -1,0 +1,133 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* shadcn/ui legacy vars — mapped onto the HOLLOW paper palette */
+    --background: 45 33% 97%;
+    --foreground: 40 14% 14%;
+    --card: 60 33% 99%;
+    --card-foreground: 40 14% 14%;
+    --popover: 60 33% 99%;
+    --popover-foreground: 40 14% 14%;
+    --primary: 153 46% 34%;
+    --primary-foreground: 60 33% 99%;
+    --secondary: 45 25% 94%;
+    --secondary-foreground: 40 14% 14%;
+    --muted: 45 25% 94%;
+    --muted-foreground: 42 10% 55%;
+    --accent: 45 25% 94%;
+    --accent-foreground: 40 14% 14%;
+    --destructive: 4 57% 44%;
+    --destructive-foreground: 60 33% 99%;
+    --border: 42 18% 87%;
+    --input: 42 18% 87%;
+    --ring: 153 46% 34%;
+    --radius: 0.375rem;
+    --sidebar-background: 60 33% 99%;
+    --sidebar-foreground: 40 14% 14%;
+    --sidebar-primary: 153 46% 34%;
+    --sidebar-primary-foreground: 60 33% 99%;
+    --sidebar-accent: 45 25% 94%;
+    --sidebar-accent-foreground: 40 14% 14%;
+    --sidebar-border: 42 18% 87%;
+    --sidebar-ring: 153 46% 34%;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-bg-0 text-ink-1 font-sans antialiased;
+    font-size: 15.5px;
+    line-height: 1.8;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* 低噪音:2026-07 重构已移除全站噪点 + 扫描线叠加层 */
+
+  ::selection {
+    background: rgb(46 125 91 / 0.16);
+    color: #29251F;
+  }
+
+  :focus-visible {
+    outline: 1px solid #2E7D5B;
+    outline-offset: 2px;
+  }
+
+  /* 锚点跳转 72px 偏移（56px nav + 16px 余量） */
+  [id] {
+    scroll-margin-top: 88px;
+  }
+
+  /* 纸面滚动条:细、淡、不抢戏 */
+  ::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #DDD6C6;
+    border: 2px solid #FAF8F3;
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #C9C0AB;
+  }
+
+  /* reduced-motion 降级：全部动效收敛为无位移淡入/静态呈现 */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* 全站搜索页统一内容列:顶栏与正文严格同栏(2026-07 布局重排) */
+  .page-col {
+    @apply mx-auto w-full max-w-2xl px-5;
+  }
+  /* 宽列(引擎注册表等网格页) */
+  .page-col-wide {
+    @apply mx-auto w-full max-w-5xl px-5;
+  }
+
+  /* Eyebrow 标签（全站统一） */
+  .eyebrow {
+    @apply font-mono text-xs text-ink-2 uppercase;
+    letter-spacing: 0.18em;
+  }
+
+  /* Hollow 空心字（品牌签名,纸面版:发丝描边） */
+  .hollow-text {
+    color: transparent;
+    -webkit-text-stroke: 1px #D4CDBC;
+  }
+  .hollow-text-signal {
+    color: transparent;
+    -webkit-text-stroke: 1px #2E7D5B;
+  }
+  .hollow-text-signal-hover {
+    transition: color 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .hollow-text-signal-hover:hover {
+    color: #2E7D5B;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
